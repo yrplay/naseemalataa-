@@ -21,13 +21,25 @@ export type PageRoute =
   | { type: 'category'; slug: string; category: ProductCategory }
   | { type: 'custom-page'; slug: string; page: CustomPage };
 
+export function safeDecodeUri(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export function parseRoutePath(
   rawPath: string,
   categories: ProductCategory[] = PRODUCT_CATEGORIES,
   customPages: CustomPage[] = []
 ): PageRoute {
-  const clean = rawPath.replace(/^https?:\/\/naseemalata\.sa/i, '').split('?')[0].split('#')[0];
-  const normalized = clean.replace(/^\/+|\/+$/g, '').toLowerCase();
+  const decoded = safeDecodeUri(rawPath);
+  const clean = decoded
+    .replace(/^https?:\/\/naseemalata\.sa/i, '')
+    .split('?')[0]
+    .split('#')[0];
+  const normalized = clean.replace(/^\/+|\/+$/g, '').trim().toLowerCase();
 
   if (!normalized || normalized === 'home') {
     return { type: 'home' };
@@ -58,14 +70,16 @@ export function parseRoutePath(
   }
 
   const matchedCustomPage = customPages.find(
-    (p) => p.slug.replace(/^\/+|\/+$/g, '').toLowerCase() === normalized
+    (p) => safeDecodeUri(p.slug).replace(/^\/+|\/+$/g, '').trim().toLowerCase() === normalized
   );
   if (matchedCustomPage) {
     return { type: 'custom-page', slug: matchedCustomPage.slug, page: matchedCustomPage };
   }
 
   const matchedCategory = categories.find(
-    (cat) => cat.slug.toLowerCase() === normalized
+    (cat) =>
+      safeDecodeUri(cat.slug).replace(/^\/+|\/+$/g, '').trim().toLowerCase() === normalized ||
+      cat.id.toLowerCase() === normalized
   );
   if (matchedCategory) {
     return { type: 'category', slug: matchedCategory.slug, category: matchedCategory };
@@ -76,14 +90,53 @@ export function parseRoutePath(
 
 export function getProductsByCategorySlug(
   slug: string,
-  products: ProductItem[] = PRODUCTS_LIST
+  products: ProductItem[] = PRODUCTS_LIST,
+  categories: ProductCategory[] = PRODUCT_CATEGORIES
 ): ProductItem[] {
-  const cleanSlug = slug.trim().toLowerCase();
+  const cleanSlug = safeDecodeUri(slug).replace(/^\/+|\/+$/g, '').trim().toLowerCase();
   if (!cleanSlug || cleanSlug === 'all') {
     return products;
   }
+
+  // Find target category and any sibling categories with identical Arabic or English names
+  const targetCategory = categories.find(
+    (c) =>
+      safeDecodeUri(c.slug).replace(/^\/+|\/+$/g, '').trim().toLowerCase() === cleanSlug ||
+      c.id.toLowerCase() === cleanSlug
+  );
+
+  const matchingKeys = new Set<string>([cleanSlug]);
+  if (targetCategory) {
+    matchingKeys.add(targetCategory.slug.trim().toLowerCase());
+    matchingKeys.add(targetCategory.id.trim().toLowerCase());
+    if (targetCategory.titleAr.trim()) {
+      matchingKeys.add(targetCategory.titleAr.trim().toLowerCase());
+    }
+    if (targetCategory.title.trim()) {
+      matchingKeys.add(targetCategory.title.trim().toLowerCase());
+    }
+
+    // Also include sibling categories that share the exact same titleAr or title
+    categories.forEach((sib) => {
+      const sameAr =
+        sib.titleAr.trim() !== '' &&
+        sib.titleAr.trim() === targetCategory.titleAr.trim();
+      const sameEn =
+        sib.title.trim() !== '' &&
+        sib.title.trim().toLowerCase() === targetCategory.title.trim().toLowerCase();
+      if (sameAr || sameEn) {
+        matchingKeys.add(sib.slug.trim().toLowerCase());
+        matchingKeys.add(sib.id.trim().toLowerCase());
+      }
+    });
+  }
+
   return products.filter((item) =>
-    item.categorySlugs.some((s) => s.toLowerCase() === cleanSlug)
+    Array.isArray(item.categorySlugs) &&
+    item.categorySlugs.some((s) => {
+      const norm = safeDecodeUri(String(s)).replace(/^\/+|\/+$/g, '').trim().toLowerCase();
+      return matchingKeys.has(norm);
+    })
   );
 }
 
@@ -141,9 +194,22 @@ export function addCategoryToState(state: SiteState, category: ProductCategory):
 }
 
 export function updateCategoryInState(state: SiteState, updated: ProductCategory): SiteState {
+  const existing = state.categories.find((c) => c.id === updated.id);
+  const oldSlug = existing?.slug?.trim().toLowerCase();
+  const newSlug = updated.slug.trim();
+
   return {
     ...state,
     categories: state.categories.map((c) => (c.id === updated.id ? updated : c)),
+    products:
+      oldSlug && newSlug && oldSlug !== newSlug.toLowerCase()
+        ? state.products.map((p) => ({
+            ...p,
+            categorySlugs: p.categorySlugs.map((s) =>
+              s.trim().toLowerCase() === oldSlug ? newSlug : s
+            ),
+          }))
+        : state.products,
   };
 }
 

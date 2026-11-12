@@ -141,3 +141,41 @@ test('verifyAdminCredentials accepts username or email with matching password an
   assert.equal(validateAdminCredentialUpdate('admin', 'bad-email', 'NewPass123').valid, false);
   assert.equal(validateAdminCredentialUpdate('admin', 'info@naseemalata.sa', '123').valid, false);
 });
+
+test('getProductsByCategorySlug matches sibling categories with identical Arabic titles and URL-encoded slugs', () => {
+  const state = createDefaultSiteState();
+  // Add a product to school-bags-ar (cat-9: الحقائب المدرسية)
+  const withSchoolBag = addProductToState(state, {
+    id: 'prod-bag-1',
+    title: 'Complete School Bag',
+    titleAr: 'حقيبة مدرسية متكاملة',
+    image: '/uploads/1782929518_product-1.jpg',
+    categorySlugs: ['school-bags-ar'],
+  });
+
+  // Visiting /school-bags (cat-13: الحقائب المدرسية) should also return the product!
+  const matchedInSibling = getProductsByCategorySlug(
+    'school-bags',
+    withSchoolBag.products,
+    withSchoolBag.categories
+  );
+  assert.equal(matchedInSibling.length, 1);
+  assert.equal(matchedInSibling[0].titleAr, 'حقيبة مدرسية متكاملة');
+
+  // URL-encoded Arabic category route should resolve properly
+  const withArabicCat = addCategoryToState(withSchoolBag, {
+    id: 'cat-arabic',
+    slug: 'تمور-مكة',
+    title: 'Makkah Dates',
+    titleAr: 'تمور مكة',
+    image: '/uploads/naseem-profile-logo.jpeg',
+    description: 'Dates',
+    descriptionAr: 'تمور',
+  });
+  const encodedPath = `/${encodeURIComponent('تمور-مكة')}`;
+  const resolved = parseRoutePath(encodedPath, withArabicCat.categories, []);
+  assert.equal(resolved.type, 'category');
+  if (resolved.type === 'category') {
+    assert.equal(resolved.category.titleAr, 'تمور مكة');
+  }
+});

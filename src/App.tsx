@@ -19,11 +19,10 @@ import { LegalPage } from './pages/LegalPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 
 function AppRoutes() {
-  const { siteState, isAdminAuthenticated, logoutAdmin } = useSite();
+  const { siteState, language, setLanguage, isAdminAuthenticated, logoutAdmin } = useSite();
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return window.location.pathname || '/';
   });
-  const [language, setLanguage] = useState<LanguageCode>('en');
 
   useEffect(() => {
     const handlePopState = () => {
@@ -76,7 +75,7 @@ function AppRoutes() {
         return { tab: 'products', labelAr: 'إدارة وإضافة المنتجات' };
       case 'category':
         return {
-          tab: `products&cat=${route.slug}`,
+          tab: `products&cat=${encodeURIComponent(route.slug)}`,
           labelAr: `+ إضافة منتج في قسم "${route.category.titleAr}"`,
         };
       case 'market-places':
@@ -158,7 +157,11 @@ function AppRoutes() {
               onNavigate={handleNavigate}
             />
             <ProductsSection
-              products={getProductsByCategorySlug(route.slug, siteState.products)}
+              products={getProductsByCategorySlug(
+                route.slug,
+                siteState.products,
+                siteState.categories
+              )}
               language={language}
               heading={`${
                 language === 'ar' ? route.category.titleAr : route.category.title
@@ -169,6 +172,8 @@ function AppRoutes() {
                   : route.category.description
               }
               alignStart={true}
+              categorySlug={route.slug}
+              categoryTitleAr={route.category.titleAr}
             />
           </div>
         )}

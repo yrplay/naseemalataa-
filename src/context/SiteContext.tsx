@@ -3,11 +3,13 @@ import {
   ContactSubmission,
   createDefaultSiteState,
   DEFAULT_ADMIN_AUTH,
+  LanguageCode,
   SiteState,
 } from '../data/siteData';
 
 const STORAGE_KEY = 'naseem_cms_state_v1';
 const ADMIN_SESSION_KEY = 'naseem_admin_auth_session_v1';
+const LANGUAGE_STORAGE_KEY = 'naseem_site_lang_v1';
 
 interface SiteContextValue {
   siteState: SiteState;
@@ -17,6 +19,8 @@ interface SiteContextValue {
   addContactSubmission: (
     msg: Omit<ContactSubmission, 'id' | 'submittedAt' | 'read'>
   ) => void;
+  language: LanguageCode;
+  setLanguage: (lang: LanguageCode) => void;
   isAdminAuthenticated: boolean;
   loginAdmin: () => void;
   logoutAdmin: () => void;
@@ -26,6 +30,27 @@ interface SiteContextValue {
 const SiteContext = createContext<SiteContextValue | undefined>(undefined);
 
 export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [language, setLanguageState] = useState<LanguageCode>(() => {
+    try {
+      const savedLang = localStorage.getItem(LANGUAGE_STORAGE_KEY) as LanguageCode | null;
+      if (savedLang && ['ar', 'en', 'ur', 'hi'].includes(savedLang)) {
+        return savedLang;
+      }
+    } catch {
+      // ignore
+    }
+    return 'ar';
+  });
+
+  const setLanguage = (lang: LanguageCode) => {
+    setLanguageState(lang);
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    } catch {
+      // ignore
+    }
+  };
+
   const [siteState, setSiteState] = useState<SiteState>(() => {
     const defaults = createDefaultSiteState();
     try {
@@ -35,7 +60,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const merged: SiteState = { ...defaults, ...parsed };
         if (Array.isArray(merged.categories)) {
           merged.categories = merged.categories.map((cat, idx) => {
-            if (cat.slug === 'n-a') {
+            if (!cat.slug || cat.slug === 'n-a' || /^category-\d+$/.test(cat.slug)) {
               const fallback = defaults.categories.find((d) => d.id === cat.id);
               return {
                 ...cat,
@@ -44,6 +69,12 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return cat;
           });
+        }
+        if (Array.isArray(merged.products)) {
+          merged.products = merged.products.map((prod) => ({
+            ...prod,
+            categorySlugs: Array.isArray(prod.categorySlugs) ? prod.categorySlugs : [],
+          }));
         }
         return merged;
       }
@@ -160,6 +191,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateSiteState,
         resetSiteState,
         addContactSubmission,
+        language,
+        setLanguage,
         isAdminAuthenticated,
         loginAdmin,
         logoutAdmin,

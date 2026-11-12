@@ -17,6 +17,7 @@ import {
   addProductToState,
   deleteCategoryFromState,
   deleteProductFromState,
+  getProductsByCategorySlug,
   moveArrayItem,
   slugifyText,
   updateCategoryInState,
@@ -56,6 +57,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     setSiteState,
     updateSiteState,
     resetSiteState,
+    language,
+    setLanguage,
     isAdminAuthenticated,
     loginAdmin,
     logoutAdmin,
@@ -83,6 +86,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   // Search & filter states for Categories & Products
   const [catSearch, setCatSearch] = useState('');
   const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
+  const [inCatProduct, setInCatProduct] = useState({
+    titleAr: '',
+    title: '',
+    price: '',
+    descriptionAr: '',
+    image: '/uploads/1782929518_product-1.jpg',
+  });
   const [newCategory, setNewCategory] = useState<Omit<ProductCategory, 'id'>>({
     slug: '',
     title: '',
@@ -245,12 +255,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     setEditingCategory(null);
   };
 
+  const expandWithSiblingCategorySlugs = (slugs: string[]): string[] => {
+    const baseSlugs =
+      slugs.length > 0
+        ? slugs
+        : prodCategoryFilter !== 'all'
+        ? [prodCategoryFilter]
+        : ['food-baskets'];
+    const expanded = new Set<string>();
+    baseSlugs.forEach((rawSlug) => {
+      const clean = rawSlug.trim();
+      if (!clean) return;
+      expanded.add(clean);
+      const matchedCat = siteState.categories.find(
+        (c) => c.slug.toLowerCase() === clean.toLowerCase() || c.id === clean
+      );
+      if (matchedCat) {
+        expanded.add(matchedCat.slug);
+        siteState.categories.forEach((sib) => {
+          if (
+            sib.titleAr.trim() !== '' &&
+            sib.titleAr.trim() === matchedCat.titleAr.trim()
+          ) {
+            expanded.add(sib.slug);
+          }
+        });
+      }
+    });
+    return Array.from(expanded);
+  };
+
   // Handlers for Products
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProduct.title.trim() && !newProduct.titleAr.trim()) return;
     const finalTitle = newProduct.title.trim() || newProduct.titleAr.trim();
     const finalTitleAr = newProduct.titleAr.trim() || newProduct.title.trim();
+    const finalSlugs = expandWithSiblingCategorySlugs(newProduct.categorySlugs);
 
     const created: ProductItem = {
       id: `prod-${Date.now()}`,
@@ -260,12 +301,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       description: newProduct.description?.trim() || undefined,
       descriptionAr: newProduct.descriptionAr?.trim() || undefined,
       image: newProduct.image || '/uploads/1782929518_product-1.jpg',
-      categorySlugs: newProduct.categorySlugs,
+      categorySlugs: finalSlugs,
     };
 
     updateSiteState((prev) => addProductToState(prev, created));
-    const keptSlugs =
-      newProduct.categorySlugs.length > 0 ? newProduct.categorySlugs : ['food-baskets'];
     setNewProduct({
       title: '',
       titleAr: '',
@@ -273,15 +312,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       description: '',
       descriptionAr: '',
       image: '/uploads/1782929518_product-1.jpg',
-      categorySlugs: keptSlugs,
+      categorySlugs: finalSlugs,
     });
     notify(`تمت إضافة المنتج "${finalTitleAr}" داخل القسم المحدد بنجاح.`);
+  };
+
+  const handleAddProductInsideCategoryModal = (targetCat: ProductCategory) => {
+    if (!inCatProduct.titleAr.trim() && !inCatProduct.title.trim()) return;
+    const finalTitleAr = inCatProduct.titleAr.trim() || inCatProduct.title.trim();
+    const finalTitle = inCatProduct.title.trim() || inCatProduct.titleAr.trim();
+    const finalSlugs = expandWithSiblingCategorySlugs([targetCat.slug]);
+
+    const created: ProductItem = {
+      id: `prod-${Date.now()}`,
+      title: finalTitle,
+      titleAr: finalTitleAr,
+      price: inCatProduct.price.trim() || undefined,
+      descriptionAr: inCatProduct.descriptionAr.trim() || undefined,
+      description: inCatProduct.descriptionAr.trim() || undefined,
+      image: inCatProduct.image || '/uploads/1782929518_product-1.jpg',
+      categorySlugs: finalSlugs,
+    };
+
+    updateSiteState((prev) => addProductToState(prev, created));
+    setInCatProduct({
+      titleAr: '',
+      title: '',
+      price: '',
+      descriptionAr: '',
+      image: '/uploads/1782929518_product-1.jpg',
+    });
+    notify(`تمت إضافة المنتج "${finalTitleAr}" داخل قسم "${targetCat.titleAr}" بنجاح!`);
   };
 
   const handleSaveProductEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
-    updateSiteState((prev) => updateProductInState(prev, editingProduct));
+    const updatedWithSiblings: ProductItem = {
+      ...editingProduct,
+      categorySlugs: expandWithSiblingCategorySlugs(editingProduct.categorySlugs),
+    };
+    updateSiteState((prev) => updateProductInState(prev, updatedWithSiblings));
     notify(`تم تحديث المنتج "${editingProduct.titleAr}" بنجاح.`);
     setEditingProduct(null);
   };
@@ -433,6 +504,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               {statusNotice}
             </span>
           )}
+          <div className="hidden md:flex items-center gap-1 bg-slate-100 border border-slate-200 rounded px-2 py-1 text-xs">
+            <span className="text-slate-600">لغة الزوار:</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLanguage('ar');
+                notify('تم تثبيت لغة واجهة الزوار على العربية.');
+              }}
+              className={`px-2 py-0.5 rounded font-semibold cursor-pointer ${
+                language === 'ar' ? 'bg-[#23838B] text-white' : 'text-slate-700 hover:bg-white'
+              }`}
+            >
+              العربية
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLanguage('en');
+                notify('تم تغيير لغة واجهة الزوار إلى الإنجليزية.');
+              }}
+              className={`px-2 py-0.5 rounded font-semibold cursor-pointer ${
+                language === 'en' ? 'bg-[#23838B] text-white' : 'text-slate-700 hover:bg-white'
+              }`}
+            >
+              EN
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -2524,7 +2622,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                       type="submit"
                       className="px-5 py-2 text-xs font-semibold bg-[#23838B] text-white rounded cursor-pointer"
                     >
-                      حفظ التعديلات
+                      حفظ تعديلات بيانات القسم
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(`/${editingCategory.slug}`)}
+                      className="px-4 py-2 text-xs font-semibold text-[#23838B] bg-white border border-[#23838B] rounded cursor-pointer"
+                    >
+                      معاينة القسم في الموقع &larr;
                     </button>
                     <button
                       type="button"
@@ -2533,6 +2638,124 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                     >
                       إغلاق
                     </button>
+                  </div>
+
+                  {/* Direct In-Category Product Management Box */}
+                  <div className="mt-6 pt-5 border-t-2 border-amber-200 bg-white p-4 rounded space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-slate-900">
+                        المنتجات داخل قسم "{editingCategory.titleAr}" (
+                        {
+                          getProductsByCategorySlug(
+                            editingCategory.slug,
+                            siteState.products,
+                            siteState.categories
+                          ).length
+                        }
+                        ) — أضف منتجاً جديداً هنا مباشرة:
+                      </h4>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <input
+                        type="text"
+                        value={inCatProduct.titleAr}
+                        onChange={(e) =>
+                          setInCatProduct({ ...inCatProduct, titleAr: e.target.value })
+                        }
+                        placeholder="اسم المنتج بالعربية *"
+                        className="px-3 py-2 text-xs border border-slate-300 rounded"
+                      />
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={inCatProduct.title}
+                        onChange={(e) =>
+                          setInCatProduct({ ...inCatProduct, title: e.target.value })
+                        }
+                        placeholder="Product Name (EN - Optional)"
+                        className="px-3 py-2 text-xs border border-slate-300 rounded"
+                      />
+                      <input
+                        type="text"
+                        value={inCatProduct.price}
+                        onChange={(e) =>
+                          setInCatProduct({ ...inCatProduct, price: e.target.value })
+                        }
+                        placeholder="السعر (اختياري - مثال: 120 ر.س)"
+                        className="px-3 py-2 text-xs border border-slate-300 rounded"
+                      />
+                    </div>
+
+                    <ImageInputField
+                      label="صورة المنتج الجديد داخل هذا القسم"
+                      value={inCatProduct.image}
+                      onChange={(url) => setInCatProduct({ ...inCatProduct, image: url })}
+                    />
+
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => handleAddProductInsideCategoryModal(editingCategory)}
+                        className="px-4 py-2 text-xs font-semibold bg-[#23838B] hover:bg-[#1a666d] text-white rounded cursor-pointer"
+                      >
+                        <i className="fa fa-plus me-1.5"></i>
+                        إضافة المنتج فوراً داخل قسم "{editingCategory.titleAr}"
+                      </button>
+                    </div>
+
+                    {/* List of products currently in this category */}
+                    <div className="pt-2">
+                      {getProductsByCategorySlug(
+                        editingCategory.slug,
+                        siteState.products,
+                        siteState.categories
+                      ).length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          لا توجد منتجات مضافة في هذا القسم حتى الآن. اكتب اسم المنتج أعلاه واضغط
+                          إضافة.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          {getProductsByCategorySlug(
+                            editingCategory.slug,
+                            siteState.products,
+                            siteState.categories
+                          ).map((p) => (
+                            <div
+                              key={p.id}
+                              className="flex items-center justify-between gap-2 p-2 rounded border border-slate-200 bg-slate-50"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <img
+                                  src={p.image}
+                                  alt={p.titleAr}
+                                  referrerPolicy="no-referrer"
+                                  className="w-9 h-9 object-cover rounded bg-white border border-slate-200 shrink-0"
+                                />
+                                <div className="truncate">
+                                  <div className="text-xs font-bold text-slate-900 truncate">
+                                    {p.titleAr}
+                                  </div>
+                                  {p.price && (
+                                    <div className="text-[11px] text-[#23838B]">{p.price}</div>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateSiteState((prev) => deleteProductFromState(prev, p.id))
+                                }
+                                className="text-xs text-red-600 hover:underline shrink-0 cursor-pointer"
+                              >
+                                حذف
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </form>
               )}
@@ -2565,8 +2788,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {filteredCategories.map((cat, idx) => {
-                        const countInCat = siteState.products.filter((p) =>
-                          p.categorySlugs.includes(cat.slug)
+                        const countInCat = getProductsByCategorySlug(
+                          cat.slug,
+                          siteState.products,
+                          siteState.categories
                         ).length;
                         return (
                           <tr key={cat.id} className="hover:bg-slate-50">
@@ -2713,16 +2938,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                           } else {
                             setNewProduct({
                               ...newProduct,
-                              categorySlugs: Array.from(
-                                new Set([val, ...newProduct.categorySlugs])
-                              ),
+                              categorySlugs: [val],
                             });
                             setProdCategoryFilter(val);
                           }
                         }}
                         className="w-full px-3 py-2 text-sm font-semibold bg-white text-slate-900 border border-[#23838B] rounded"
                       >
-                        <option value="">-- اختر القسم من القائمة (15 قسماً) --</option>
+                        <option value="">-- اختر القسم من القائمة ({siteState.categories.length} قسماً) --</option>
                         {siteState.categories.map((cat) => (
                           <option key={cat.id} value={cat.slug}>
                             {cat.titleAr} — ({cat.title})
