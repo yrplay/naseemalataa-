@@ -1,0 +1,6 @@
+{
+  "name": "Naseem Al-Ataa Trading Company",
+  "description": "Exact replica of Naseem Al-Ataa Trading Company (شركة نسيم العطاء التجارية) website for food trading, catering, project execution, and wholesale supply.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
