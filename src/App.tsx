@@ -19,7 +19,17 @@ import { LegalPage } from './pages/LegalPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 
 function AppRoutes() {
-  const { siteState, language, setLanguage, isAdminAuthenticated, logoutAdmin } = useSite();
+  const {
+    siteState,
+    language,
+    setLanguage,
+    isAdminAuthenticated,
+    currentStaffMember,
+    hasPermission,
+    visitorPreviewMode,
+    setVisitorPreviewMode,
+    logoutAdmin,
+  } = useSite();
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return window.location.pathname || '/';
   });
@@ -65,29 +75,54 @@ function AppRoutes() {
 
   const t = siteState.uiTranslations[language];
 
-  const getContextualAdminTab = (): { tab: string; labelAr: string } => {
+  const getContextualAdminTab = (): { tab: string; labelAr: string; allowed: boolean } => {
     switch (route.type) {
       case 'about-us':
-        return { tab: 'about', labelAr: 'تعديل صفحة من نحن' };
+        return { tab: 'about', labelAr: 'تعديل صفحة من نحن', allowed: hasPermission('about') };
       case 'products-categories':
-        return { tab: 'categories', labelAr: 'إدارة الأقسام (15)' };
+        return {
+          tab: 'categories',
+          labelAr: 'إدارة الأقسام',
+          allowed: hasPermission('categories'),
+        };
       case 'all-products':
-        return { tab: 'products', labelAr: 'إدارة وإضافة المنتجات' };
+        return {
+          tab: 'products',
+          labelAr: 'إدارة وإضافة المنتجات',
+          allowed: hasPermission('products'),
+        };
       case 'category':
         return {
           tab: `products&cat=${encodeURIComponent(route.slug)}`,
           labelAr: `+ إضافة منتج في قسم "${route.category.titleAr}"`,
+          allowed: hasPermission('products'),
         };
       case 'market-places':
-        return { tab: 'marketplaces', labelAr: 'إدارة قطاعات العمل' };
+        return {
+          tab: 'marketplaces',
+          labelAr: 'إدارة قطاعات العمل',
+          allowed: hasPermission('marketplaces'),
+        };
       case 'contact-us':
-        return { tab: 'company', labelAr: 'تعديل بيانات التواصل' };
+        return {
+          tab: 'company',
+          labelAr: 'تعديل بيانات التواصل',
+          allowed: hasPermission('company'),
+        };
       case 'privacy-policy':
       case 'terms-and-conditions':
       case 'custom-page':
-        return { tab: 'pages', labelAr: 'تعديل الصفحات والسياسات' };
+        return {
+          tab: 'pages',
+          labelAr: 'تعديل الصفحات والسياسات',
+          allowed: hasPermission('pages'),
+        };
       default:
-        return { tab: 'overview', labelAr: 'لوحة تحكم الأدمن الشاملة' };
+        return {
+          tab: 'overview',
+          labelAr: 'لوحة تحكم الموظفين والأدمن',
+          allowed: true,
+        };
     }
   };
 
@@ -247,29 +282,54 @@ function AppRoutes() {
 
       <Footer language={language} onNavigate={handleNavigate} />
 
-      {/* Contextual Quick-Edit Admin Bar (Bottom-Start) */}
-      <div
-        dir="rtl"
-        className="fixed bottom-5 start-5 z-40 flex items-center gap-1.5 bg-slate-900/95 text-white px-3 py-2 rounded shadow-lg border border-slate-700 text-xs"
-      >
-        {!quickBarCollapsed ? (
-          isAdminAuthenticated ? (
+      {/* Staff/Admin Quick Bar ONLY shown to authenticated staff/admins — completely invisible to regular visitors! */}
+      {isAdminAuthenticated && currentStaffMember && (
+        <div
+          dir="rtl"
+          className="fixed bottom-5 start-5 z-40 flex items-center gap-1.5 bg-slate-900/95 text-white px-3 py-2 rounded shadow-lg border border-slate-700 text-xs"
+        >
+          {visitorPreviewMode ? (
+            <button
+              type="button"
+              onClick={() => setVisitorPreviewMode(false)}
+              className="flex items-center gap-1.5 font-semibold text-amber-300 hover:text-white cursor-pointer"
+            >
+              <i className="fa fa-eye-slash"></i>
+              <span>إنهاء وضع معاينة الزائر والعودة لوضع الموظف ({currentStaffMember.name})</span>
+            </button>
+          ) : !quickBarCollapsed ? (
             <>
-              <button
-                type="button"
-                onClick={() => handleNavigate(`/admin?tab=${quickEditTarget.tab}`)}
-                className="flex items-center gap-2 font-semibold text-white hover:text-[#BE9C6A] transition-colors cursor-pointer"
-              >
-                <i className="fa fa-sliders-h text-[#23838B]"></i>
-                <span>{quickEditTarget.labelAr}</span>
-              </button>
+              <span className="text-emerald-400 font-semibold">
+                {currentStaffMember.name}
+              </span>
               <span className="text-slate-600 mx-1">|</span>
+              {quickEditTarget.allowed && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate(`/admin?tab=${quickEditTarget.tab}`)}
+                    className="flex items-center gap-1.5 font-semibold text-white hover:text-[#BE9C6A] transition-colors cursor-pointer"
+                  >
+                    <i className="fa fa-sliders-h text-[#23838B]"></i>
+                    <span>{quickEditTarget.labelAr}</span>
+                  </button>
+                  <span className="text-slate-600 mx-1">|</span>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => handleNavigate('/admin')}
                 className="text-slate-300 hover:text-white transition-colors cursor-pointer"
               >
                 لوحة التحكم
+              </button>
+              <span className="text-slate-600 mx-1">|</span>
+              <button
+                type="button"
+                onClick={() => setVisitorPreviewMode(true)}
+                className="text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
+              >
+                معاينة كزائر
               </button>
               <span className="text-slate-600 mx-1">|</span>
               <button
@@ -289,37 +349,18 @@ function AppRoutes() {
               </button>
             </>
           ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => handleNavigate('/admin')}
-                className="flex items-center gap-2 font-semibold text-white hover:text-[#BE9C6A] transition-colors cursor-pointer"
-              >
-                <i className="fa fa-lock text-[#BE9C6A]"></i>
-                <span>دخول الأدمن</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuickBarCollapsed(true)}
-                aria-label="تصغير زر الأدمن"
-                className="ms-1.5 text-slate-400 hover:text-white cursor-pointer"
-              >
-                <i className="fa fa-times"></i>
-              </button>
-            </>
-          )
-        ) : (
-          <button
-            type="button"
-            onClick={() => setQuickBarCollapsed(false)}
-            aria-label="فتح شريط الأدمن السريع"
-            className="flex items-center gap-1.5 font-semibold text-white cursor-pointer"
-          >
-            <i className="fa fa-cog text-[#23838B]"></i>
-            <span>الأدمن</span>
-          </button>
-        )}
-      </div>
+            <button
+              type="button"
+              onClick={() => setQuickBarCollapsed(false)}
+              aria-label="فتح شريط الأدمن السريع"
+              className="flex items-center gap-1.5 font-semibold text-white cursor-pointer"
+            >
+              <i className="fa fa-user-shield text-[#23838B]"></i>
+              <span>{currentStaffMember.name}</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

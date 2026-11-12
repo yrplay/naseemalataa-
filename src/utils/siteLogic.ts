@@ -1,11 +1,15 @@
 import {
+  ALL_STAFF_PERMISSIONS,
   CustomPage,
+  DEFAULT_STAFF_MEMBERS,
   LanguageCode,
   PRODUCT_CATEGORIES,
   PRODUCTS_LIST,
   ProductCategory,
   ProductItem,
   SiteState,
+  StaffMember,
+  StaffPermissionKey,
 } from '../data/siteData';
 
 export type PageRoute =
@@ -44,7 +48,14 @@ export function parseRoutePath(
   if (!normalized || normalized === 'home') {
     return { type: 'home' };
   }
-  if (normalized === 'admin' || normalized.startsWith('admin/')) {
+  if (
+    normalized === 'admin' ||
+    normalized.startsWith('admin/') ||
+    normalized === 'portal' ||
+    normalized.startsWith('portal/') ||
+    normalized === 'staff' ||
+    normalized.startsWith('staff/')
+  ) {
     return { type: 'admin' };
   }
   if (normalized === 'about-us') {
@@ -291,3 +302,90 @@ export function validateAdminCredentialUpdate(
   }
   return { valid: true };
 }
+
+export function findStaffByEmail(
+  email: string,
+  staffMembers: StaffMember[] = DEFAULT_STAFF_MEMBERS
+): StaffMember | undefined {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) return undefined;
+  return staffMembers.find((s) => s.email.trim().toLowerCase() === cleanEmail);
+}
+
+export function authenticateStaffLogin(
+  identifier: string,
+  password: string,
+  staffMembers: StaffMember[] = DEFAULT_STAFF_MEMBERS,
+  authConfig: { username: string; email: string; password: string }
+): { staff: StaffMember | null; error?: string } {
+  const cleanId = identifier.trim().toLowerCase();
+
+  // 1. Check if matching an employee in staffMembers by email
+  const matchedStaff = staffMembers.find(
+    (s) => s.email.trim().toLowerCase() === cleanId
+  );
+
+  if (matchedStaff) {
+    if (!matchedStaff.active) {
+      return {
+        staff: null,
+        error: 'هذا الحساب موقوف حالياً من قِبل الإدارة. يرجى مراجعة المدير العام.',
+      };
+    }
+    const expectedCode = matchedStaff.accessCode || authConfig.password;
+    if (password === expectedCode) {
+      return { staff: matchedStaff };
+    }
+    return {
+      staff: null,
+      error: 'كلمة المرور / كود الدخول الخاص بالموظف غير صحيح.',
+    };
+  }
+
+  // 2. Check master admin credentials (username or email)
+  if (verifyAdminCredentials(identifier, password, authConfig)) {
+    const owner =
+      findStaffByEmail('yr.play.com@gmail.com', staffMembers) ||
+      DEFAULT_STAFF_MEMBERS[0];
+    return {
+      staff: {
+        ...owner,
+        active: true,
+        permissions: [...ALL_STAFF_PERMISSIONS],
+      },
+    };
+  }
+
+  return {
+    staff: null,
+    error: 'بيانات الدخول غير صحيحة أو البريد غير مسجل ضمن فريق العمل.',
+  };
+}
+
+export function hasStaffPermission(
+  staff: StaffMember | null,
+  permission: StaffPermissionKey
+): boolean {
+  if (!staff || !staff.active) return false;
+  if (
+    staff.rolePreset === 'super_admin' ||
+    staff.email.trim().toLowerCase() === 'yr.play.com@gmail.com'
+  ) {
+    return true;
+  }
+  return Array.isArray(staff.permissions) && staff.permissions.includes(permission);
+}
+
+export function extractAuthorizedEmails(
+  staffMembers: StaffMember[] = DEFAULT_STAFF_MEMBERS
+): string[] {
+  const emails = new Set<string>(['yr.play.com@gmail.com']);
+  staffMembers.forEach((s) => {
+    const clean = s.email?.trim().toLowerCase();
+    if (s.active && clean && clean.length >= 3 && clean.length <= 128 && emails.size < 50) {
+      emails.add(clean);
+    }
+  });
+  return Array.from(emails);
+}
+

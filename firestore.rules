@@ -27,6 +27,7 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    // Tier 1: Super Admin (Owner or UID in /admins)
     function isAdmin() {
       return isVerifiedUser() && (
         request.auth.token.email == 'yr.play.com@gmail.com' ||
@@ -34,11 +35,13 @@ service cloud.firestore {
       );
     }
 
-    // Validation Blueprint for SiteContent
+    // Validation Blueprint for SiteContent (with Pillar 5 Total Array Guarding on authorizedEmails)
     function isValidSiteContent(data) {
-      return data.keys().hasAll(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasAll(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
         data.payloadJson is string && data.payloadJson.size() >= 2 && data.payloadJson.size() <= 900000 &&
+        data.authorizedEmails is list && data.authorizedEmails.size() >= 1 && data.authorizedEmails.size() <= 50 &&
+        data.authorizedEmails[0] is string && data.authorizedEmails[0].size() >= 3 && data.authorizedEmails[0].size() <= 128 &&
         data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
         data.version is int && data.version >= 1 &&
         data.createdAt is timestamp &&
@@ -66,13 +69,25 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         isAdmin();
 
+      // Pillar 4 Tiered Identity Logic:
+      // - Tier 1 (Super Admin): Can update payloadJson and authorizedEmails
+      // - Tier 2 (Authorized Staff in existing().authorizedEmails): Can update payloadJson only, cannot modify authorizedEmails
       allow update: if isVerifiedUser() &&
         isValidId(docId) &&
         isValidSiteContent(incoming()) &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt']) &&
-        isAdmin();
+        (
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'updatedAt']) &&
+            isAdmin()
+          ) ||
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt']) &&
+            incoming().authorizedEmails == existing().authorizedEmails &&
+            request.auth.token.email in existing().authorizedEmails
+          )
+        );
 
       allow delete: if false;
     }

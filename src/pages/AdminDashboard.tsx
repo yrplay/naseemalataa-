@@ -8,6 +8,7 @@ import {
   MarketPlaceItem,
   ProductCategory,
   ProductItem,
+  StaffPermissionKey,
   UITranslationSet,
   WorkAreaRow,
 } from '../data/siteData';
@@ -26,18 +27,9 @@ import {
 import { ImageInputField } from '../components/admin/ImageInputField';
 import { AdminLoginGate } from '../components/admin/AdminLoginGate';
 import { AdminSecurityAndDeployModal } from '../components/admin/AdminSecurityAndDeployModal';
+import { StaffManagementPanel } from '../components/admin/StaffManagementPanel';
 
-export type AdminTabKey =
-  | 'overview'
-  | 'company'
-  | 'theme'
-  | 'hero'
-  | 'about'
-  | 'categories'
-  | 'products'
-  | 'marketplaces'
-  | 'pages'
-  | 'messages';
+export type AdminTabKey = StaffPermissionKey;
 
 interface AdminDashboardProps {
   onNavigate: (path: string) => void;
@@ -60,6 +52,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     language,
     setLanguage,
     isAdminAuthenticated,
+    currentStaffMember,
+    hasPermission,
+    setVisitorPreviewMode,
     loginAdmin,
     logoutAdmin,
     publishChanges,
@@ -74,6 +69,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     const tabParam = params.get('tab') as AdminTabKey | null;
     const validTabs: AdminTabKey[] = [
       'overview',
+      'staff',
       'company',
       'theme',
       'hero',
@@ -180,8 +176,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
   const unreadMessagesCount = siteState.contactMessages.filter((m) => !m.read).length;
 
-  const navItems: Array<{ key: AdminTabKey; label: string; icon: string; badge?: number }> = [
+  const allNavItems: Array<{ key: AdminTabKey; label: string; icon: string; badge?: number }> = [
     { key: 'overview', label: 'نظرة عامة والإحصائيات', icon: 'fa-chart-pie' },
+    {
+      key: 'staff',
+      label: 'الموظفون والصلاحيات (RBAC)',
+      icon: 'fa-users-cog',
+      badge: siteState.staffMembers?.length || 1,
+    },
     { key: 'company', label: 'الهوية وبيانات التواصل', icon: 'fa-building' },
     { key: 'theme', label: 'المظهر والألوان وترتيب الرئيسية', icon: 'fa-palette' },
     {
@@ -217,6 +219,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
       badge: unreadMessagesCount > 0 ? unreadMessagesCount : undefined,
     },
   ];
+
+  const navItems = allNavItems.filter((item) => hasPermission(item.key));
+
+  React.useEffect(() => {
+    if (isAdminAuthenticated && !hasPermission(activeTab) && navItems.length > 0) {
+      setActiveTab(navItems[0].key);
+    }
+  }, [isAdminAuthenticated, activeTab, hasPermission, navItems]);
 
   // Handlers for Categories
   const handleAddCategory = (e: React.FormEvent) => {
@@ -470,9 +480,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   if (!isAdminAuthenticated) {
     return (
       <AdminLoginGate
-        onLoginSuccess={() => {
-          loginAdmin();
-          notify('مرحباً بك في لوحة تحكم شركة نسيم العطاء التجارية.');
+        onLoginSuccess={(staff) => {
+          loginAdmin(staff);
+          notify(
+            staff
+              ? `مرحباً بك ${staff.name} (${staff.jobTitle}) في بوابة نسيم العطاء.`
+              : 'مرحباً بك في لوحة تحكم شركة نسيم العطاء التجارية.'
+          );
         }}
         onNavigateHome={() => onNavigate('/')}
       />
@@ -480,27 +494,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      {/* Top Bar Contract: Breadcrumb on Start, 1-2 Primary Actions on End */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between gap-8">
-        <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
+    <div dir="rtl" className="min-h-screen w-full overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col font-sans">
+      {/* Top Bar Contract: Breadcrumb on Start, Actions on End */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 lg:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <img
             src={siteState.company.logo}
             alt="Logo"
             referrerPolicy="no-referrer"
-            className="h-9 w-auto object-contain"
+            className="h-8 w-auto object-contain shrink-0"
           />
           <span className="text-slate-300">/</span>
-          <span className="font-bold text-slate-900 text-base">
-            لوحة تحكم الأدمن الشاملة
+          <span className="font-bold text-slate-900 text-sm sm:text-base">
+            بوابة إدارة نسيم العطاء
           </span>
-          <span className="text-slate-300 hidden sm:inline">/</span>
-          <span className="text-sm text-[#23838B] font-semibold hidden sm:inline">
+          {currentStaffMember && (
+            <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+              <i className="fa fa-user-shield text-[#23838B]"></i>
+              <span>{currentStaffMember.name}</span>
+              <span className="text-emerald-600/80 hidden xl:inline">
+                ({currentStaffMember.jobTitle})
+              </span>
+            </span>
+          )}
+          <span className="text-slate-300 hidden lg:inline">/</span>
+          <span className="text-xs sm:text-sm text-[#23838B] font-semibold hidden lg:inline">
             {navItems.find((i) => i.key === activeTab)?.label}
           </span>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {statusNotice && (
             <span
               role="status"
@@ -536,6 +559,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               EN
             </button>
           </div>
+          {hasPermission('staff') && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('staff')}
+              className="px-3.5 py-2 text-xs font-semibold text-slate-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer hidden xl:inline-flex items-center gap-1.5"
+            >
+              <i className="fa fa-users-cog text-[#23838B]"></i>
+              <span>الموظفون والصلاحيات</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={async () => {
@@ -544,7 +577,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               if (ok) {
                 notify(`تم حفظ ومزامنة التعديلات سحابياً مع جميع الأجهزة بنجاح (${ts}).`);
               } else {
-                notify('يرجى ربط حساب Google للأدمن لإتمام المزامنة السحابية مع الأجهزة الأخرى.');
+                notify('يرجى ربط حساب Google المعتمد لإتمام المزامنة السحابية مع الأجهزة الأخرى.');
               }
             }}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#BE9C6A] hover:opacity-90 rounded transition-opacity whitespace-nowrap shrink-0 cursor-pointer"
@@ -558,11 +591,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
           </button>
           <button
             type="button"
-            onClick={() => onNavigate('/')}
+            onClick={() => {
+              setVisitorPreviewMode(true);
+              onNavigate('/');
+            }}
+            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            title="معاينة الموقع كما يظهر للزوار بدون أي أزرار أدمن"
+          >
+            <i className="fa fa-eye me-1.5 text-[#23838B]"></i>
+            معاينة كزائر
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setVisitorPreviewMode(false);
+              onNavigate('/');
+            }}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#23838B] hover:bg-[#1a666d] rounded transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <i className="fa fa-external-link-alt me-1.5"></i>
-            معاينة الموقع الحي
+            الموقع الحي
           </button>
         </div>
       </header>
@@ -579,9 +627,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
           <button
             type="button"
             onClick={async () => {
-              const ok = await signInWithGoogleAdmin();
-              if (ok) {
+              const res = await signInWithGoogleAdmin();
+              if (res.ok) {
                 notify('تم تفعيل المزامنة السحابية الفورية مع جميع الأجهزة بنجاح!');
+              } else if (res.error) {
+                notify(res.error);
               }
             }}
             className="px-3.5 py-1.5 bg-[#23838B] hover:bg-[#1a666d] text-white font-semibold rounded cursor-pointer shrink-0"
@@ -677,7 +727,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         </aside>
 
         {/* Main Viewport */}
-        <main className="flex-1 p-6 lg:p-8 overflow-y-auto">
+        <main className="flex-1 min-w-0 p-6 lg:p-8 overflow-y-auto">
+          {/* STAFF & RBAC TAB */}
+          {activeTab === 'staff' && hasPermission('staff') && (
+            <StaffManagementPanel
+              onNotify={(msg) => notify(msg)}
+              onNavigate={onNavigate}
+            />
+          )}
+
           {/* 1. OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <div className="space-y-6">

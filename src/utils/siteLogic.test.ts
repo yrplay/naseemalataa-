@@ -12,8 +12,11 @@ import {
   slugifyText,
   verifyAdminCredentials,
   validateAdminCredentialUpdate,
+  authenticateStaffLogin,
+  hasStaffPermission,
+  extractAuthorizedEmails,
 } from './siteLogic';
-import { createDefaultSiteState, DEFAULT_ADMIN_AUTH } from '../data/siteData';
+import { createDefaultSiteState, DEFAULT_ADMIN_AUTH, StaffMember } from '../data/siteData';
 
 test('parseRoutePath resolves main pages, admin route, custom pages, and category slugs accurately', () => {
   assert.equal(parseRoutePath('/').type, 'home');
@@ -179,3 +182,72 @@ test('getProductsByCategorySlug matches sibling categories with identical Arabic
     assert.equal(resolved.category.titleAr, 'تمور مكة');
   }
 });
+
+test('Staff RBAC authenticates employees by email, enforces granular module permissions, and extracts authorizedEmails', () => {
+  assert.equal(parseRoutePath('/portal').type, 'admin');
+  assert.equal(parseRoutePath('/staff').type, 'admin');
+
+  const customStaffList: StaffMember[] = [
+    {
+      id: 'staff-owner',
+      name: 'المدير العام',
+      email: 'yr.play.com@gmail.com',
+      jobTitle: 'المدير العام',
+      rolePreset: 'super_admin',
+      accessCode: 'Naseem@2026',
+      permissions: ['overview', 'products', 'staff'],
+      active: true,
+      addedAt: '2026-11-12',
+    },
+    {
+      id: 'staff-emp-1',
+      name: 'خالد العتيبي',
+      email: 'khalid@naseemalata.sa',
+      jobTitle: 'مسؤول المنتجات والأقسام',
+      rolePreset: 'products_manager',
+      accessCode: 'Khalid#2026',
+      permissions: ['overview', 'categories', 'products'],
+      active: true,
+      addedAt: '2026-11-12',
+    },
+    {
+      id: 'staff-suspended',
+      name: 'موظف موقوف',
+      email: 'suspended@naseemalata.sa',
+      jobTitle: 'محرر',
+      rolePreset: 'custom',
+      accessCode: 'Pass1234',
+      permissions: ['overview'],
+      active: false,
+      addedAt: '2026-11-12',
+    },
+  ];
+
+  // Authenticate active employee
+  const loginRes = authenticateStaffLogin(
+    'khalid@naseemalata.sa',
+    'Khalid#2026',
+    customStaffList,
+    DEFAULT_ADMIN_AUTH
+  );
+  assert.ok(loginRes.staff);
+  assert.equal(loginRes.staff.name, 'خالد العتيبي');
+  assert.equal(hasStaffPermission(loginRes.staff, 'products'), true);
+  assert.equal(hasStaffPermission(loginRes.staff, 'categories'), true);
+  assert.equal(hasStaffPermission(loginRes.staff, 'staff'), false);
+  assert.equal(hasStaffPermission(loginRes.staff, 'theme'), false);
+
+  // Reject suspended employee
+  const suspendedRes = authenticateStaffLogin(
+    'suspended@naseemalata.sa',
+    'Pass1234',
+    customStaffList,
+    DEFAULT_ADMIN_AUTH
+  );
+  assert.equal(suspendedRes.staff, null);
+
+  // Extract active emails for Firestore RBAC
+  const emails = extractAuthorizedEmails(customStaffList);
+  assert.deepEqual(emails, ['yr.play.com@gmail.com', 'khalid@naseemalata.sa']);
+});
+

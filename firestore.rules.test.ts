@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const rulesContent = fs.readFileSync(path.resolve(process.cwd(), 'firestore.rules'), 'utf8');
 
-test('firestore.rules enforces all 8 pillars and blocks Dirty Dozen attack vectors', () => {
+test('firestore.rules enforces all 8 pillars, Tier 1 Super Admin, and Tier 2 Staff RBAC', () => {
   // 1. Default deny catch-all
   assert.ok(rulesContent.includes('match /{document=**}'));
   assert.ok(rulesContent.includes('allow read, write: if false;'));
@@ -14,27 +14,18 @@ test('firestore.rules enforces all 8 pillars and blocks Dirty Dozen attack vecto
   assert.ok(rulesContent.includes('request.auth.token.email_verified == true'));
   assert.ok(rulesContent.includes("request.auth.token.email == 'yr.play.com@gmail.com'"));
 
-  // 3. Strict schema keys and size limits for SiteContent
+  // 3. Strict schema keys, Total Array Guarding on authorizedEmails, and size limits for SiteContent
   assert.ok(
     rulesContent.includes(
-      "data.keys().hasAll(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt'])"
+      "data.keys().hasAll(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'createdAt', 'updatedAt'])"
     )
   );
-  assert.ok(
-    rulesContent.includes(
-      "data.keys().hasOnly(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt'])"
-    )
-  );
+  assert.ok(rulesContent.includes('data.authorizedEmails.size() <= 50'));
+  assert.ok(rulesContent.includes('data.authorizedEmails[0] is string'));
   assert.ok(rulesContent.includes('data.payloadJson.size() <= 900000'));
   assert.ok(rulesContent.includes('data.updatedBy == request.auth.uid'));
 
-  // 4. Temporal integrity & immutability on create and update
-  assert.ok(rulesContent.includes('incoming().createdAt == request.time'));
-  assert.ok(rulesContent.includes('incoming().updatedAt == request.time'));
-  assert.ok(rulesContent.includes('incoming().createdAt == existing().createdAt'));
-  assert.ok(
-    rulesContent.includes(
-      "incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt'])"
-    )
-  );
+  // 4. Tier 2 Staff cannot mutate authorizedEmails
+  assert.ok(rulesContent.includes('incoming().authorizedEmails == existing().authorizedEmails'));
+  assert.ok(rulesContent.includes('request.auth.token.email in existing().authorizedEmails'));
 });

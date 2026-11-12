@@ -8,7 +8,7 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ language, onNavigate }) => {
-  const { siteState } = useSite();
+  const { siteState, isAdminAuthenticated, visitorPreviewMode } = useSite();
   const { company, theme, uiTranslations, customPages } = siteState;
   const t = uiTranslations[language];
 
@@ -211,16 +211,18 @@ export const Footer: React.FC<FooterProps> = ({ language, onNavigate }) => {
                 </a>
                 , {t.allRightReserved}
               </div>
-              <div>
-                <a
-                  href="/admin"
-                  onClick={(e) => handleNav(e, '/admin')}
-                  className="text-xs text-[#BE9C6A] hover:text-white transition-colors flex items-center gap-1.5"
-                >
-                  <i className="fa fa-cog"></i>
-                  <span>لوحة التحكم (Admin)</span>
-                </a>
-              </div>
+              {isAdminAuthenticated && !visitorPreviewMode && (
+                <div>
+                  <a
+                    href="/admin"
+                    onClick={(e) => handleNav(e, '/admin')}
+                    className="text-xs text-[#BE9C6A] hover:text-white transition-colors flex items-center gap-1.5"
+                  >
+                    <i className="fa fa-cog"></i>
+                    <span>لوحة تحكم الموظفين والأدمن</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>

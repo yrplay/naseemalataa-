@@ -2,18 +2,23 @@
   "entities": {
     "SiteContent": {
       "title": "SiteContent",
-      "description": "Public CMS state for Naseem Al-Ataa Trading Company synchronized across all devices.",
+      "description": "Public CMS state and authorized staff email allowlist for Naseem Al-Ataa Trading Company.",
       "type": "object",
       "properties": {
         "payloadJson": {
           "type": "string",
-          "description": "Serialized public CMS state (categories, products, company info, theme, pages).",
+          "description": "Serialized CMS state (categories, products, company info, theme, pages, staff roles).",
           "minLength": 2,
           "maxLength": 900000
         },
+        "authorizedEmails": {
+          "type": "array",
+          "description": "Bounded allowlist of active staff and admin Google emails (max 50).",
+          "maxLength": 50
+        },
         "updatedBy": {
           "type": "string",
-          "description": "UID of the admin who published the update.",
+          "description": "UID of the admin or staff member who published the update.",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
@@ -33,11 +38,11 @@
           "description": "Server timestamp of latest update."
         }
       },
-      "required": ["payloadJson", "updatedBy", "version", "createdAt", "updatedAt"]
+      "required": ["payloadJson", "authorizedEmails", "updatedBy", "version", "createdAt", "updatedAt"]
     },
     "AdminRecord": {
       "title": "AdminRecord",
-      "description": "Authorized administrator record.",
+      "description": "Authorized super administrator record.",
       "type": "object",
       "properties": {
         "uid": {
@@ -66,11 +71,11 @@
   "firestore": {
     "/site_content/{docId}": {
       "schema": { "$ref": "#/entities/SiteContent" },
-      "description": "Publicly readable website CMS state document (docId = 'main') updated by authorized admins."
+      "description": "Publicly readable website CMS state document (docId = 'main') updated by authorized admins and staff."
     },
     "/admins/{adminUid}": {
       "schema": { "$ref": "#/entities/AdminRecord" },
-      "description": "Collection of authorized admin UIDs managed by the primary admin."
+      "description": "Collection of authorized super admin UIDs."
     }
   }
 }

@@ -9,16 +9,26 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import {
+  ALL_STAFF_PERMISSIONS,
   ContactSubmission,
   createDefaultSiteState,
   DEFAULT_ADMIN_AUTH,
+  DEFAULT_STAFF_MEMBERS,
   LanguageCode,
   SiteState,
+  StaffMember,
+  StaffPermissionKey,
 } from '../data/siteData';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
+import {
+  extractAuthorizedEmails,
+  findStaffByEmail,
+  hasStaffPermission,
+} from '../utils/siteLogic';
 
 const STORAGE_KEY = 'naseem_cms_state_v1';
 const ADMIN_SESSION_KEY = 'naseem_admin_auth_session_v1';
+const STAFF_EMAIL_SESSION_KEY = 'naseem_staff_email_session_v1';
 const LANGUAGE_STORAGE_KEY = 'naseem_site_lang_v1';
 const SITE_CONTENT_COLLECTION = 'site_content';
 const SITE_CONTENT_DOC_ID = 'main';
@@ -29,7 +39,7 @@ export type CloudSyncStatus = 'connecting' | 'synced' | 'saving' | 'local-only' 
 interface SiteContextValue {
   siteState: SiteState;
   setSiteState: React.Dispatch<React.SetStateAction<SiteState>>;
-  updateSiteState: (updater: (prev: SiteState) => SiteState) => void;
+  updateSiteState: (updater: (prev: SiteState) => SiteState, actionLabel?: string) => void;
   resetSiteState: () => void;
   addContactSubmission: (
     msg: Omit<ContactSubmission, 'id' | 'submittedAt' | 'read'>
@@ -37,13 +47,17 @@ interface SiteContextValue {
   language: LanguageCode;
   setLanguage: (lang: LanguageCode) => void;
   isAdminAuthenticated: boolean;
-  loginAdmin: () => void;
+  currentStaffMember: StaffMember | null;
+  hasPermission: (perm: StaffPermissionKey) => boolean;
+  visitorPreviewMode: boolean;
+  setVisitorPreviewMode: (val: boolean) => void;
+  loginAdmin: (staff?: StaffMember) => void;
   logoutAdmin: () => void;
   publishChanges: () => string;
   cloudAdminUser: User | null;
   cloudSyncStatus: CloudSyncStatus;
   cloudSyncError: string;
-  signInWithGoogleAdmin: () => Promise<boolean>;
+  signInWithGoogleAdmin: () => Promise<{ ok: boolean; error?: string }>;
   syncNowToCloud: (overrideState?: SiteState) => Promise<boolean>;
 }
 
@@ -69,11 +83,32 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
       categorySlugs: Array.isArray(prod.categorySlugs) ? prod.categorySlugs : [],
     }));
   }
+  if (!Array.isArray(merged.staffMembers) || merged.staffMembers.length === 0) {
+    merged.staffMembers = DEFAULT_STAFF_MEMBERS;
+  } else {
+    // Ensure owner yr.play.com@gmail.com always exists and is active super_admin
+    const hasOwner = merged.staffMembers.some(
+      (s) => s.email.trim().toLowerCase() === 'yr.play.com@gmail.com'
+    );
+    if (!hasOwner) {
+      merged.staffMembers = [DEFAULT_STAFF_MEMBERS[0], ...merged.staffMembers];
+    }
+  }
+  if (!Array.isArray(merged.staffAuditLog)) {
+    merged.staffAuditLog = defaults.staffAuditLog || [];
+  }
   return merged;
 }
 
 function serializePublicSiteState(state: SiteState): string {
-  // Exclude private admin credentials and private visitor contact messages from public cloud doc
+  // Strip private passwords from staffMembers and adminAuth before storing in public cloud doc
+  const sanitizedStaff: StaffMember[] = (state.staffMembers || DEFAULT_STAFF_MEMBERS).map(
+    (s) => ({
+      ...s,
+      accessCode: s.accessCode || undefined,
+    })
+  );
+
   const publicCopy: Partial<SiteState> = {
     company: state.company,
     theme: state.theme,
@@ -87,6 +122,8 @@ function serializePublicSiteState(state: SiteState): string {
     termsAndConditions: state.termsAndConditions,
     customPages: state.customPages,
     uiTranslations: state.uiTranslations,
+    staffMembers: sanitizedStaff,
+    staffAuditLog: (state.staffAuditLog || []).slice(0, 60),
     adminAuth: {
       ...DEFAULT_ADMIN_AUTH,
       lastPublishedAt: state.adminAuth?.lastPublishedAt || DEFAULT_ADMIN_AUTH.lastPublishedAt,
@@ -94,7 +131,9 @@ function serializePublicSiteState(state: SiteState): string {
   };
   const json = JSON.stringify(publicCopy);
   if (json.length > MAX_PAYLOAD_LENGTH) {
-    throw new Error('حجم البيانات يتجاوز الحد المسموح به للمزامنة السحابية (900KB). يرجى تقليل حجم الصور المرفوعة.');
+    throw new Error(
+      'حجم البيانات يتجاوز الحد المسموح به للمزامنة السحابية (900KB). يرجى تقليل حجم الصور المرفوعة.'
+    );
   }
   return json;
 }
@@ -143,6 +182,15 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
+  const [loggedInStaffEmail, setLoggedInStaffEmail] = useState<string>(() => {
+    try {
+      return localStorage.getItem(STAFF_EMAIL_SESSION_KEY) || 'yr.play.com@gmail.com';
+    } catch {
+      return 'yr.play.com@gmail.com';
+    }
+  });
+
+  const [visitorPreviewMode, setVisitorPreviewMode] = useState<boolean>(false);
   const [cloudAdminUser, setCloudAdminUser] = useState<User | null>(null);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>('connecting');
   const [cloudSyncError, setCloudSyncError] = useState<string>('');
@@ -152,6 +200,31 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isApplyingRemoteRef = useRef<boolean>(false);
   const latestStateRef = useRef<SiteState>(siteState);
   latestStateRef.current = siteState;
+
+  // Derive active staff profile from siteState.staffMembers
+  const currentStaffMember: StaffMember | null = React.useMemo(() => {
+    if (!isAdminAuthenticated) return null;
+    const emailToLookup = cloudAdminUser?.email || loggedInStaffEmail || 'yr.play.com@gmail.com';
+    const found = findStaffByEmail(emailToLookup, siteState.staffMembers);
+    if (found) {
+      return found.active ? found : null;
+    }
+    if (emailToLookup.trim().toLowerCase() === 'yr.play.com@gmail.com') {
+      return {
+        ...DEFAULT_STAFF_MEMBERS[0],
+        permissions: [...ALL_STAFF_PERMISSIONS],
+        active: true,
+      };
+    }
+    return null;
+  }, [isAdminAuthenticated, cloudAdminUser, loggedInStaffEmail, siteState.staffMembers]);
+
+  const hasPermission = useCallback(
+    (perm: StaffPermissionKey): boolean => {
+      return hasStaffPermission(currentStaffMember, perm);
+    },
+    [currentStaffMember]
+  );
 
   // Save to localStorage as instant local cache
   useEffect(() => {
@@ -176,8 +249,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCloudSyncStatus('saving');
       setCloudSyncError('');
       const payloadJson = serializePublicSiteState(stateToSave);
+      const authorizedEmails = extractAuthorizedEmails(stateToSave.staffMembers);
+      const isSuperAdminUser =
+        currentUser.email?.trim().toLowerCase() === 'yr.play.com@gmail.com';
 
-      // Check whether the document already exists on Firestore
       let existsOnServer = hasRemoteDocRef.current;
       if (!existsOnServer) {
         try {
@@ -199,6 +274,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           await setDoc(docRef, {
             payloadJson,
+            authorizedEmails,
             updatedBy: currentUser.uid,
             version: 1,
             createdAt: serverTimestamp(),
@@ -212,12 +288,23 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         const nextVersion = (remoteVersionRef.current || 1) + 1;
         try {
-          await updateDoc(docRef, {
-            payloadJson,
-            updatedBy: currentUser.uid,
-            version: nextVersion,
-            updatedAt: serverTimestamp(),
-          });
+          if (isSuperAdminUser) {
+            await updateDoc(docRef, {
+              payloadJson,
+              authorizedEmails,
+              updatedBy: currentUser.uid,
+              version: nextVersion,
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            // Tier 2 Staff Member: update payloadJson without mutating authorizedEmails
+            await updateDoc(docRef, {
+              payloadJson,
+              updatedBy: currentUser.uid,
+              version: nextVersion,
+              updatedAt: serverTimestamp(),
+            });
+          }
           remoteVersionRef.current = nextVersion;
         } catch (err) {
           handleFirestoreError(err, OperationType.UPDATE, docPath);
@@ -234,23 +321,33 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Track Firebase Auth state
+  // Track Firebase Auth state and verify employee authorization
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
-      setCloudAdminUser(user);
-      if (user) {
-        setIsAdminAuthenticated(true);
-        try {
-          localStorage.setItem(ADMIN_SESSION_KEY, 'true');
-        } catch {
-          // ignore
+      if (user && user.email) {
+        const matched = findStaffByEmail(user.email, latestStateRef.current.staffMembers);
+        const isOwner = user.email.trim().toLowerCase() === 'yr.play.com@gmail.com';
+        if (isOwner || (matched && matched.active)) {
+          setCloudAdminUser(user);
+          setLoggedInStaffEmail(user.email.trim().toLowerCase());
+          setIsAdminAuthenticated(true);
+          try {
+            localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+            localStorage.setItem(STAFF_EMAIL_SESSION_KEY, user.email.trim().toLowerCase());
+          } catch {
+            // ignore
+          }
+        } else {
+          setCloudAdminUser(null);
         }
+      } else {
+        setCloudAdminUser(null);
       }
     });
     return () => unsubAuth();
   }, []);
 
-  // Real-time listener on /site_content/main for ALL visitors on ALL devices
+  // Real-time listener on /site_content/main for ALL visitors & staff on ALL devices
   useEffect(() => {
     const docPath = `${SITE_CONTENT_COLLECTION}/${SITE_CONTENT_DOC_ID}`;
     const docRef = doc(db, SITE_CONTENT_COLLECTION, SITE_CONTENT_DOC_ID);
@@ -271,7 +368,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
               isApplyingRemoteRef.current = true;
               setSiteStateInternal((prev) => {
                 const normalized = normalizeSiteState(parsed, defaults);
-                // Preserve local contactMessages and local password
                 return {
                   ...normalized,
                   contactMessages: prev.contactMessages,
@@ -327,49 +423,87 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const updateSiteState = useCallback(
-    (updater: (prev: SiteState) => SiteState) => {
-      setSiteState((prev) => updater(prev));
+    (updater: (prev: SiteState) => SiteState, actionLabel?: string) => {
+      setSiteState((prev) => {
+        const updated = updater(prev);
+        if (actionLabel && currentStaffMember) {
+          const entry = {
+            id: `audit-${Date.now()}`,
+            staffName: currentStaffMember.name,
+            staffEmail: currentStaffMember.email,
+            action: actionLabel,
+            timestamp: new Date().toLocaleString('en-US', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          };
+          return {
+            ...updated,
+            staffAuditLog: [entry, ...(updated.staffAuditLog || [])].slice(0, 60),
+          };
+        }
+        return updated;
+      });
     },
-    [setSiteState]
+    [setSiteState, currentStaffMember]
   );
 
-  const signInWithGoogleAdmin = async (): Promise<boolean> => {
+  const signInWithGoogleAdmin = async (): Promise<{ ok: boolean; error?: string }> => {
     try {
       setCloudSyncError('');
       const cred = await signInWithPopup(auth, googleProvider);
-      if (cred.user) {
-        setCloudAdminUser(cred.user);
+      const user = cred.user;
+      if (user && user.email) {
+        const cleanEmail = user.email.trim().toLowerCase();
+        const matched = findStaffByEmail(cleanEmail, latestStateRef.current.staffMembers);
+        const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+
+        if (!isOwner && (!matched || !matched.active)) {
+          await signOut(auth);
+          const msg = `البريد الإلكتروني (${cleanEmail}) غير مسجل ضمن قائمة الموظفين أو الأدمنز المعتمدين. يجب أن يقوم المدير العام بإضافة إيميلك أولاً من قسم (الموظفون والصلاحيات).`;
+          setCloudSyncError(msg);
+          return { ok: false, error: msg };
+        }
+
+        setCloudAdminUser(user);
+        setLoggedInStaffEmail(cleanEmail);
         setIsAdminAuthenticated(true);
         try {
           localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+          localStorage.setItem(STAFF_EMAIL_SESSION_KEY, cleanEmail);
         } catch {
           // ignore
         }
-        // Immediately sync current state to cloud if no cloud doc exists yet or admin wants to push changes
         await pushStateToFirestore(latestStateRef.current);
-        return true;
+        return { ok: true };
       }
-      return false;
+      return { ok: false, error: 'لم يتم استلام بيانات البريد الإلكتروني من Google.' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setCloudSyncError(msg);
-      return false;
+      return { ok: false, error: msg };
     }
   };
 
   const syncNowToCloud = async (overrideState?: SiteState): Promise<boolean> => {
     const targetState = overrideState || latestStateRef.current;
     if (!auth.currentUser) {
-      const signedIn = await signInWithGoogleAdmin();
-      if (!signedIn) return false;
+      const res = await signInWithGoogleAdmin();
+      if (!res.ok) return false;
     }
     return pushStateToFirestore(targetState);
   };
 
-  const loginAdmin = () => {
+  const loginAdmin = (staff?: StaffMember) => {
+    const email = staff?.email?.trim().toLowerCase() || 'yr.play.com@gmail.com';
+    setLoggedInStaffEmail(email);
     setIsAdminAuthenticated(true);
     try {
       localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+      localStorage.setItem(STAFF_EMAIL_SESSION_KEY, email);
     } catch {
       // ignore
     }
@@ -377,8 +511,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logoutAdmin = () => {
     setIsAdminAuthenticated(false);
+    setVisitorPreviewMode(false);
     try {
       localStorage.removeItem(ADMIN_SESSION_KEY);
+      localStorage.removeItem(STAFF_EMAIL_SESSION_KEY);
     } catch {
       // ignore
     }
@@ -462,7 +598,11 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addContactSubmission,
         language,
         setLanguage,
-        isAdminAuthenticated,
+        isAdminAuthenticated: Boolean(isAdminAuthenticated && currentStaffMember),
+        currentStaffMember,
+        hasPermission,
+        visitorPreviewMode,
+        setVisitorPreviewMode,
         loginAdmin,
         logoutAdmin,
         publishChanges,

@@ -197,6 +197,47 @@ export interface AdminAuthConfig {
   lastPublishedAt: string;
 }
 
+export type StaffPermissionKey =
+  | 'overview'
+  | 'company'
+  | 'theme'
+  | 'hero'
+  | 'about'
+  | 'categories'
+  | 'products'
+  | 'marketplaces'
+  | 'pages'
+  | 'messages'
+  | 'staff';
+
+export type StaffRolePreset =
+  | 'super_admin'
+  | 'products_manager'
+  | 'content_editor'
+  | 'support_agent'
+  | 'custom';
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  jobTitle: string;
+  rolePreset: StaffRolePreset;
+  accessCode?: string;
+  permissions: StaffPermissionKey[];
+  active: boolean;
+  addedAt: string;
+  addedByEmail?: string;
+}
+
+export interface StaffAuditEntry {
+  id: string;
+  staffName: string;
+  staffEmail: string;
+  action: string;
+  timestamp: string;
+}
+
 export interface SiteState {
   company: CompanyInfo;
   theme: ThemeConfig;
@@ -217,6 +258,8 @@ export interface SiteState {
   customPages: CustomPage[];
   uiTranslations: Record<LanguageCode, UITranslationSet>;
   contactMessages: ContactSubmission[];
+  staffMembers: StaffMember[];
+  staffAuditLog: StaffAuditEntry[];
 }
 
 export const COMPANY_INFO: CompanyInfo = {
@@ -1004,6 +1047,66 @@ export const UI_TRANSLATIONS: Record<LanguageCode, UITranslationSet> = {
   },
 };
 
+export const ALL_STAFF_PERMISSIONS: StaffPermissionKey[] = [
+  'overview',
+  'company',
+  'theme',
+  'hero',
+  'about',
+  'categories',
+  'products',
+  'marketplaces',
+  'pages',
+  'messages',
+  'staff',
+];
+
+export const STAFF_ROLE_PRESETS: Record<
+  StaffRolePreset,
+  { labelAr: string; defaultTitleAr: string; permissions: StaffPermissionKey[] }
+> = {
+  super_admin: {
+    labelAr: 'مدير عام كامل الصلاحيات (Super Admin)',
+    defaultTitleAr: 'مدير عام النظام',
+    permissions: [...ALL_STAFF_PERMISSIONS],
+  },
+  products_manager: {
+    labelAr: 'مسؤول المنتجات والأقسام والقطاعات',
+    defaultTitleAr: 'مسؤول إدارة المنتجات والأقسام',
+    permissions: ['overview', 'categories', 'products', 'marketplaces'],
+  },
+  content_editor: {
+    labelAr: 'محرر محتوى الواجهة والصفحات والسلايدر',
+    defaultTitleAr: 'محرر المحتوى والصفحات',
+    permissions: ['overview', 'company', 'theme', 'hero', 'about', 'pages'],
+  },
+  support_agent: {
+    labelAr: 'مسؤول خدمة العملاء ورسائل التواصل',
+    defaultTitleAr: 'مسؤول خدمة العملاء',
+    permissions: ['overview', 'messages'],
+  },
+  custom: {
+    labelAr: 'صلاحيات مخصصة (تحديد يدوي)',
+    defaultTitleAr: 'موظف إداري',
+    permissions: ['overview', 'products'],
+  },
+};
+
+export const DEFAULT_STAFF_MEMBERS: StaffMember[] = [
+  {
+    id: 'staff-owner',
+    name: 'المدير العام (المالك)',
+    email: 'yr.play.com@gmail.com',
+    jobTitle: 'المدير العام ومالك النظام (Super Admin)',
+    rolePreset: 'super_admin',
+    accessCode: 'Naseem@2026',
+    permissions: [...ALL_STAFF_PERMISSIONS],
+    active: true,
+    addedAt: '2026-11-12',
+    addedByEmail: 'yr.play.com@gmail.com',
+  },
+];
+
 export const DEFAULT_ADMIN_AUTH: AdminAuthConfig = {
   username: 'admin',
   email: 'info@naseemalata.sa',
@@ -1038,6 +1141,16 @@ export function createDefaultSiteState(): SiteState {
             'السلام عليكم ورحمة الله، نرغب في الحصول على عرض سعر رسمي لتجهيز وتوزيع 2,500 سلة غذائية و5,000 كرتون مياه شرب في مكة المكرمة.',
           submittedAt: '2026-11-11 09:30 AM',
           read: false,
+        },
+      ],
+      staffMembers: DEFAULT_STAFF_MEMBERS,
+      staffAuditLog: [
+        {
+          id: 'audit-seed-1',
+          staffName: 'المدير العام (المالك)',
+          staffEmail: 'yr.play.com@gmail.com',
+          action: 'تأسيس النظام وتفعيل إدارة الموظفين والصلاحيات السحابية',
+          timestamp: '2026-11-12 09:00 AM',
         },
       ],
     })

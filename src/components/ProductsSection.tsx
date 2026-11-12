@@ -26,7 +26,15 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
   categoryTitleAr,
   onSelectProduct,
 }) => {
-  const { siteState, updateSiteState, isAdminAuthenticated } = useSite();
+  const {
+    siteState,
+    updateSiteState,
+    isAdminAuthenticated,
+    hasPermission,
+    visitorPreviewMode,
+  } = useSite();
+  const canManageProducts =
+    isAdminAuthenticated && hasPermission('products') && !visitorPreviewMode;
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickProd, setQuickProd] = useState({
@@ -44,7 +52,7 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
 
   const handleQuickAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!categorySlug) return;
+    if (!categorySlug || !canManageProducts) return;
     if (!quickProd.titleAr.trim() && !quickProd.title.trim()) return;
     const finalTitleAr = quickProd.titleAr.trim() || quickProd.title.trim();
     const finalTitle = quickProd.title.trim() || quickProd.titleAr.trim();
@@ -73,7 +81,10 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
       categorySlugs: Array.from(targetSlugs),
     };
 
-    updateSiteState((prev) => addProductToState(prev, created));
+    updateSiteState(
+      (prev) => addProductToState(prev, created),
+      `إضافة منتج "${finalTitleAr}" في قسم "${categoryTitleAr || categorySlug}"`
+    );
     setQuickProd({
       titleAr: '',
       title: '',
@@ -101,7 +112,7 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
               <p className="naseem-p">{sectionSubtitle}</p>
             </div>
 
-            {categorySlug && isAdminAuthenticated && (
+            {categorySlug && canManageProducts && (
               <button
                 type="button"
                 onClick={() => setShowQuickAdd(!showQuickAdd)}
@@ -117,7 +128,7 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
         </div>
 
         {/* Inline Admin Quick-Add Form inside the Category Page */}
-        {categorySlug && isAdminAuthenticated && showQuickAdd && (
+        {categorySlug && canManageProducts && showQuickAdd && (
           <form
             dir="rtl"
             onSubmit={handleQuickAddSubmit}
@@ -215,7 +226,7 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
         {products.length === 0 ? (
           <div className="space-y-3">
             <p className="naseem-p text-base">{t.noProductsAvailable}</p>
-            {categorySlug && isAdminAuthenticated && !showQuickAdd && (
+            {categorySlug && canManageProducts && !showQuickAdd && (
               <button
                 type="button"
                 onClick={() => setShowQuickAdd(true)}
