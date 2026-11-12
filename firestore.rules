@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'yr.play.com@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprint for SiteContent
+    function isValidSiteContent(data) {
+      return data.keys().hasAll(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
+        data.payloadJson is string && data.payloadJson.size() >= 2 && data.payloadJson.size() <= 900000 &&
+        data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
+        data.version is int && data.version >= 1 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint for AdminRecord
+    function isValidAdminRecord(data, targetUid) {
+      return data.keys().hasAll(['uid', 'addedBy', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'addedBy', 'createdAt']) &&
+        data.uid is string && isValidId(data.uid) && data.uid == targetUid &&
+        data.addedBy is string && isValidId(data.addedBy) && data.addedBy == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    // Public CMS state synchronized across all devices
+    match /site_content/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(docId) &&
+        isValidSiteContent(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(docId) &&
+        isValidSiteContent(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt']) &&
+        isAdmin();
+
+      allow delete: if false;
+    }
+
+    // Admin registry
+    match /admins/{adminUid} {
+      allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow list: if false;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(adminUid) &&
+        isValidAdminRecord(incoming(), adminUid) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+
+      allow update: if false;
+
+      allow delete: if isVerifiedUser() && isValidId(adminUid) && isAdmin();
+    }
+  }
+}

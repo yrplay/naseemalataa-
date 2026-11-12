@@ -63,6 +63,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     loginAdmin,
     logoutAdmin,
     publishChanges,
+    cloudAdminUser,
+    cloudSyncStatus,
+    cloudSyncError,
+    signInWithGoogleAdmin,
+    syncNowToCloud,
   } = useSite();
   const [activeTab, setActiveTab] = useState<AdminTabKey>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -533,14 +538,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
           </div>
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               const ts = publishChanges();
-              notify(`تم حفظ ونشر جميع التعديلات بنجاح (${ts}).`);
+              const ok = await syncNowToCloud();
+              if (ok) {
+                notify(`تم حفظ ومزامنة التعديلات سحابياً مع جميع الأجهزة بنجاح (${ts}).`);
+              } else {
+                notify('يرجى ربط حساب Google للأدمن لإتمام المزامنة السحابية مع الأجهزة الأخرى.');
+              }
             }}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#BE9C6A] hover:opacity-90 rounded transition-opacity whitespace-nowrap shrink-0 cursor-pointer"
           >
             <i className="fa fa-cloud-upload-alt me-1.5"></i>
-            نشر التعديلات (Publish)
+            {cloudAdminUser
+              ? cloudSyncStatus === 'saving'
+                ? 'جاري المزامنة السحابية...'
+                : 'مزامنة سحابية لكل الأجهزة (Cloud Sync)'
+              : 'تفعيل المزامنة السحابية (Google)'}
           </button>
           <button
             type="button"
@@ -552,6 +566,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
           </button>
         </div>
       </header>
+
+      {/* Cloud Sync Banner if not connected with Google Admin */}
+      {!cloudAdminUser ? (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-amber-900 font-medium">
+            <i className="fa fa-exclamation-triangle text-amber-600"></i>
+            <span>
+              أنت مسجل الدخول محلياً فقط. لكي تظهر المنتجات والتعديلات في <strong>جميع الأجهزة والجوالات الأخرى فوراً</strong>، اضغط على زر ربط حساب Google السحابي:
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await signInWithGoogleAdmin();
+              if (ok) {
+                notify('تم تفعيل المزامنة السحابية الفورية مع جميع الأجهزة بنجاح!');
+              }
+            }}
+            className="px-3.5 py-1.5 bg-[#23838B] hover:bg-[#1a666d] text-white font-semibold rounded cursor-pointer shrink-0"
+          >
+            <i className="fab fa-google me-1.5"></i>
+            تفعيل المزامنة السحابية الآن ({cloudAdminUser ? 'متصل' : 'Google'})
+          </button>
+        </div>
+      ) : (
+        <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-900">
+          <div className="flex items-center gap-2 font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block"></span>
+            <span>
+              <strong>المزامنة السحابية الفورية نشطة (Firebase Cloud Firestore):</strong> أي منتج تضيفه أو تعديل تقوم به يظهر تلقائياً وفي نفس اللحظة على جميع الأجهزة والجوالات ({cloudAdminUser.email}).
+            </span>
+          </div>
+          {cloudSyncError && (
+            <span className="text-red-700 font-mono text-[11px]">{cloudSyncError}</span>
+          )}
+        </div>
+      )}
 
       {/* Main Workspace Layout: Sidebar + Content Viewport */}
       <div className="flex-1 flex flex-col lg:flex-row max-w-[1600px] w-full mx-auto">

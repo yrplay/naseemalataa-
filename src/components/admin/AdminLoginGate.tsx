@@ -12,13 +12,14 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
   onLoginSuccess,
   onNavigateHome,
 }) => {
-  const { siteState } = useSite();
+  const { siteState, signInWithGoogleAdmin, cloudSyncError } = useSite();
   const authConfig = siteState.adminAuth || DEFAULT_ADMIN_AUTH;
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +28,20 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
       onLoginSuccess();
     } else {
       setErrorMsg('بيانات الدخول غير صحيحة. تأكد من اسم المستخدم أو البريد وكلمة المرور.');
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    setErrorMsg('');
+    const ok = await signInWithGoogleAdmin();
+    setIsGoogleLoading(false);
+    if (ok) {
+      onLoginSuccess();
+    } else {
+      setErrorMsg(
+        'تعذر تسجيل الدخول عبر Google. تأكد من استخدام البريد المعتمد للأدمن (yr.play.com@gmail.com) والموافقة على النافذة المنبثقة.'
+      );
     }
   };
 
@@ -53,16 +68,40 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
             تسجيل دخول لوحة تحكم الأدمن
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            شركة نسيم العطاء التجارية · بوابة الإدارة والتطوير
+            شركة نسيم العطاء التجارية · بوابة الإدارة والمزامنة السحابية
           </p>
         </div>
 
-        {errorMsg && (
+        {/* Cloud Sync Google Login Button */}
+        <div className="mb-5 p-3.5 rounded bg-teal-50/80 border border-teal-200 space-y-2">
+          <div className="text-xs font-bold text-slate-800">
+            الدخول السحابي الموحد (موصى به لمزامنة التعديلات مع جميع الأجهزة):
+          </div>
+          <button
+            type="button"
+            disabled={isGoogleLoading}
+            onClick={handleGoogleSignIn}
+            className="w-full py-2.5 px-4 bg-[#23838B] hover:bg-[#1a666d] text-white font-semibold text-xs rounded flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
+          >
+            <i className="fab fa-google text-sm"></i>
+            <span>
+              {isGoogleLoading
+                ? 'جاري الاتصال بقاعدة البيانات السحابية...'
+                : 'دخول عبر حساب Google وتفعيل المزامنة السحابية'}
+            </span>
+          </button>
+          <p className="text-[11px] text-slate-600 leading-relaxed">
+            عند الدخول بحساب Google المعتمد، يتم حفظ أي منتج أو تعديل في قاعدة البيانات السحابية
+            ويظهر فوراً على جميع الجوالات والأجهزة الأخرى.
+          </p>
+        </div>
+
+        {(errorMsg || cloudSyncError) && (
           <div
             role="alert"
-            className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs font-medium"
+            className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs font-medium break-words"
           >
-            {errorMsg}
+            {errorMsg || cloudSyncError}
           </div>
         )}
 
@@ -72,7 +111,7 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
               htmlFor="admin_identifier"
               className="block text-xs font-semibold text-slate-700 mb-1.5"
             >
-              اسم المستخدم أو البريد الإلكتروني
+              أو الدخول باسم المستخدم / البريد الإلكتروني
             </label>
             <input
               id="admin_identifier"
