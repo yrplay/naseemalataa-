@@ -33,7 +33,10 @@ const VISITOR_EMAIL_SESSION_KEY = 'naseem_visitor_email_session_v1';
 const LANGUAGE_STORAGE_KEY = 'naseem_site_lang_v1';
 const SITE_CONTENT_COLLECTION = 'site_content';
 const SITE_CONTENT_DOC_ID = 'main';
+const SITE_MEDIA_COLLECTION = 'site_media';
+const MEDIA_REF_PREFIX = '__media__:';
 const MAX_PAYLOAD_LENGTH = 890000;
+const CLIENT_INSTANCE_ID = `client_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 export type CloudSyncStatus = 'connecting' | 'synced' | 'saving' | 'local-only' | 'error';
 
@@ -67,6 +70,109 @@ interface SiteContextValue {
 }
 
 const SiteContext = createContext<SiteContextValue | undefined>(undefined);
+
+function hashStringToMediaId(str: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  const step = Math.max(1, Math.floor(str.length / 4096));
+  for (let i = 0; i < str.length; i += step) {
+    const ch = str.charCodeAt(i);
+    h1 ^= ch;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= ch + (i & 0xff);
+    h2 = Math.imul(h2, 0x85ebca6b);
+  }
+  const hex1 = (h1 >>> 0).toString(36);
+  const hex2 = (h2 >>> 0).toString(36);
+  return `media_${hex1}_${hex2}_${str.length}`;
+}
+
+function buildPublicCopyObject(state: SiteState): Partial<SiteState> {
+  const sanitizedStaff: StaffMember[] = (state.staffMembers || DEFAULT_STAFF_MEMBERS).map(
+    (s) => ({
+      ...s,
+      accessCode: s.accessCode || 'Naseem@2026',
+    })
+  );
+
+  return {
+    company: state.company,
+    theme: state.theme,
+    heroSlides: state.heroSlides,
+    homeAbout: state.homeAbout,
+    aboutPage: state.aboutPage,
+    categories: state.categories,
+    products: state.products,
+    marketPlaces: state.marketPlaces,
+    privacyPolicy: state.privacyPolicy,
+    termsAndConditions: state.termsAndConditions,
+    customPages: state.customPages,
+    uiTranslations: state.uiTranslations,
+    staffMembers: sanitizedStaff,
+    staffAuditLog: (state.staffAuditLog || []).slice(0, 60),
+    adminAuth: {
+      ...DEFAULT_ADMIN_AUTH,
+      lastPublishedAt: state.adminAuth?.lastPublishedAt || DEFAULT_ADMIN_AUTH.lastPublishedAt,
+    },
+  };
+}
+
+function offloadLargeImagesForFirestore(
+  obj: unknown,
+  mediaOut: Map<string, string>,
+  minCharsThreshold = 28000
+): unknown {
+  if (typeof obj === 'string') {
+    if (
+      obj.startsWith('data:image/') &&
+      obj.length >= minCharsThreshold &&
+      obj.length <= 845000
+    ) {
+      const mediaId = hashStringToMediaId(obj);
+      mediaOut.set(mediaId, obj);
+      return `${MEDIA_REF_PREFIX}${mediaId}`;
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item) => offloadLargeImagesForFirestore(item, mediaOut, minCharsThreshold));
+  }
+  if (obj && typeof obj === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      out[k] = offloadLargeImagesForFirestore(v, mediaOut, minCharsThreshold);
+    }
+    return out;
+  }
+  return obj;
+}
+
+async function resolveMediaTokensInObject(
+  obj: unknown,
+  resolveMediaId: (mediaId: string) => Promise<string | null>
+): Promise<unknown> {
+  if (typeof obj === 'string') {
+    if (obj.startsWith(MEDIA_REF_PREFIX)) {
+      const mediaId = obj.slice(MEDIA_REF_PREFIX.length);
+      const resolved = await resolveMediaId(mediaId);
+      return resolved || obj;
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return Promise.all(obj.map((item) => resolveMediaTokensInObject(item, resolveMediaId)));
+  }
+  if (obj && typeof obj === 'object') {
+    const entries = await Promise.all(
+      Object.entries(obj as Record<string, unknown>).map(async ([k, v]) => [
+        k,
+        await resolveMediaTokensInObject(v, resolveMediaId),
+      ])
+    );
+    return Object.fromEntries(entries);
+  }
+  return obj;
+}
 
 function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteState {
   const merged: SiteState = {
@@ -151,7 +257,6 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
   if (!Array.isArray(merged.staffMembers) || merged.staffMembers.length === 0) {
     merged.staffMembers = DEFAULT_STAFF_MEMBERS;
   } else {
-    // Ensure owner yr.play.com@gmail.com always exists and is active super_admin
     const hasOwner = merged.staffMembers.some(
       (s) => s.email.trim().toLowerCase() === 'yr.play.com@gmail.com'
     );
@@ -163,44 +268,6 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
     merged.staffAuditLog = defaults.staffAuditLog || [];
   }
   return merged;
-}
-
-function serializePublicSiteState(state: SiteState): string {
-  // Strip private passwords from staffMembers and adminAuth before storing in public cloud doc
-  const sanitizedStaff: StaffMember[] = (state.staffMembers || DEFAULT_STAFF_MEMBERS).map(
-    (s) => ({
-      ...s,
-      accessCode: s.accessCode || undefined,
-    })
-  );
-
-  const publicCopy: Partial<SiteState> = {
-    company: state.company,
-    theme: state.theme,
-    heroSlides: state.heroSlides,
-    homeAbout: state.homeAbout,
-    aboutPage: state.aboutPage,
-    categories: state.categories,
-    products: state.products,
-    marketPlaces: state.marketPlaces,
-    privacyPolicy: state.privacyPolicy,
-    termsAndConditions: state.termsAndConditions,
-    customPages: state.customPages,
-    uiTranslations: state.uiTranslations,
-    staffMembers: sanitizedStaff,
-    staffAuditLog: (state.staffAuditLog || []).slice(0, 60),
-    adminAuth: {
-      ...DEFAULT_ADMIN_AUTH,
-      lastPublishedAt: state.adminAuth?.lastPublishedAt || DEFAULT_ADMIN_AUTH.lastPublishedAt,
-    },
-  };
-  const json = JSON.stringify(publicCopy);
-  if (json.length > MAX_PAYLOAD_LENGTH) {
-    throw new Error(
-      'حجم البيانات يتجاوز الحد المسموح به للمزامنة السحابية (900KB). يرجى تقليل حجم الصور المرفوعة.'
-    );
-  }
-  return json;
 }
 
 export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -271,8 +338,79 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasRemoteDocRef = useRef<boolean>(false);
   const remoteVersionRef = useRef<number>(1);
   const isApplyingRemoteRef = useRef<boolean>(false);
+  const isSigningInPopupRef = useRef<boolean>(false);
+  const hasUnsavedLocalChangesRef = useRef<boolean>(false);
+  const lastLocalEditTimeRef = useRef<number>(0);
+  const mediaCacheRef = useRef<Map<string, string>>(new Map());
+  const uploadedMediaIdsRef = useRef<Set<string>>(new Set());
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const latestStateRef = useRef<SiteState>(siteState);
   latestStateRef.current = siteState;
+
+  // Resolve a chunked media asset from memory cache or Firestore /site_media/{mediaId}
+  const resolveMediaIdFromFirestore = useCallback(async (mediaId: string): Promise<string | null> => {
+    if (!mediaId || !/^[a-zA-Z0-9_-]{1,128}$/.test(mediaId)) return null;
+    const cached = mediaCacheRef.current.get(mediaId);
+    if (cached) return cached;
+    try {
+      const localCached = localStorage.getItem(`naseem_media_${mediaId}`);
+      if (localCached && localCached.startsWith('data:image/')) {
+        mediaCacheRef.current.set(mediaId, localCached);
+        return localCached;
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const mSnap = await getDoc(doc(db, SITE_MEDIA_COLLECTION, mediaId));
+      if (mSnap.exists()) {
+        const d = mSnap.data();
+        if (typeof d.dataUrl === 'string' && d.dataUrl.length >= 5) {
+          mediaCacheRef.current.set(mediaId, d.dataUrl);
+          try {
+            localStorage.setItem(`naseem_media_${mediaId}`, d.dataUrl);
+          } catch {
+            // ignore quota
+          }
+          return d.dataUrl;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }, []);
+
+  // Apply incoming remote state cleanly to React state & localStorage
+  const applyIncomingRemoteState = useCallback((rawRemoteState: Partial<SiteState>) => {
+    const defaults = createDefaultSiteState();
+    isApplyingRemoteRef.current = true;
+    setSiteStateInternal((prev) => {
+      const normalized = normalizeSiteState(rawRemoteState, defaults);
+      const merged: SiteState = {
+        ...normalized,
+        contactMessages: prev.contactMessages,
+        adminAuth: {
+          ...(prev.adminAuth || DEFAULT_ADMIN_AUTH),
+          lastPublishedAt:
+            normalized.adminAuth?.lastPublishedAt ||
+            prev.adminAuth?.lastPublishedAt ||
+            DEFAULT_ADMIN_AUTH.lastPublishedAt,
+        },
+      };
+      latestStateRef.current = merged;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      } catch {
+        // ignore quota
+      }
+      return merged;
+    });
+    setTimeout(() => {
+      isApplyingRemoteRef.current = false;
+    }, 60);
+  }, []);
 
   // Automatically upgrade a signed-in visitor email to Admin/Staff if their email is added to staffMembers
   useEffect(() => {
@@ -291,6 +429,21 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
   }, [signedInVisitorEmail, isAdminAuthenticated, siteState.staffMembers]);
+
+  // Re-verify Firebase Auth user whenever staffMembers updates (fixes race condition where onAuthStateChanged fired before remote staffMembers loaded)
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (user && user.email) {
+      const cleanEmail = user.email.trim().toLowerCase();
+      const matched = findStaffByEmail(cleanEmail, siteState.staffMembers);
+      const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+      if (isOwner || (matched && matched.active)) {
+        setCloudAdminUser(user);
+        setLoggedInStaffEmail(cleanEmail);
+        setIsAdminAuthenticated(true);
+      }
+    }
+  }, [siteState.staffMembers]);
 
   // Derive active staff profile from siteState.staffMembers
   const currentStaffMember: StaffMember | null = React.useMemo(() => {
@@ -326,105 +479,211 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [siteState]);
 
-  const pushStateToFirestore = useCallback(async (stateToSave: SiteState): Promise<boolean> => {
-    const currentUser = auth.currentUser;
-    if (!currentUser || !/^[a-zA-Z0-9_-]{1,128}$/.test(currentUser.uid)) {
-      setCloudSyncStatus('local-only');
-      return false;
-    }
-
-    const docPath = `${SITE_CONTENT_COLLECTION}/${SITE_CONTENT_DOC_ID}`;
-    const docRef = doc(db, SITE_CONTENT_COLLECTION, SITE_CONTENT_DOC_ID);
-
-    try {
-      setCloudSyncStatus('saving');
-      setCloudSyncError('');
-      const payloadJson = serializePublicSiteState(stateToSave);
-      const authorizedEmails = extractAuthorizedEmails(stateToSave.staffMembers);
-      const isSuperAdminUser =
-        currentUser.email?.trim().toLowerCase() === 'yr.play.com@gmail.com';
-
-      let existsOnServer = hasRemoteDocRef.current;
-      if (!existsOnServer) {
+  // Cross-tab instant synchronization via browser storage event
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
         try {
-          const existingSnap = await getDoc(docRef);
-          existsOnServer = existingSnap.exists();
-          if (existingSnap.exists()) {
-            hasRemoteDocRef.current = true;
-            const d = existingSnap.data();
-            if (typeof d.version === 'number') {
-              remoteVersionRef.current = d.version;
-            }
-          }
-        } catch (err) {
-          handleFirestoreError(err, OperationType.GET, docPath);
+          const parsed = JSON.parse(e.newValue);
+          applyIncomingRemoteState(parsed);
+        } catch {
+          // ignore
         }
       }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [applyIncomingRemoteState]);
 
-      if (!existsOnServer) {
-        try {
-          await setDoc(docRef, {
-            payloadJson,
-            authorizedEmails,
-            updatedBy: currentUser.uid,
-            version: 1,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          hasRemoteDocRef.current = true;
-          remoteVersionRef.current = 1;
-        } catch (err) {
-          handleFirestoreError(err, OperationType.CREATE, docPath);
+  // ENGINE 1: Push state to Express Server API (/api/site-state) -> broadcasts via SSE to all Visitors, Employees & Admins
+  const pushStateToServerApi = useCallback(
+    async (stateToSave: SiteState): Promise<boolean> => {
+      try {
+        const publicCopy = buildPublicCopyObject(stateToSave);
+        const actorEmail =
+          auth.currentUser?.email || loggedInStaffEmail || 'yr.play.com@gmail.com';
+        const res = await fetch('/api/site-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            state: publicCopy,
+            actorEmail,
+            clientId: CLIENT_INSTANCE_ID,
+          }),
+        });
+        if (res.ok) {
+          setCloudSyncStatus('synced');
+          return true;
         }
-      } else {
-        const nextVersion = (remoteVersionRef.current || 1) + 1;
-        try {
-          if (isSuperAdminUser) {
-            await updateDoc(docRef, {
+      } catch {
+        // Server API may be unavailable on purely static hosts; Firestore handles sync there
+      }
+      return false;
+    },
+    [loggedInStaffEmail]
+  );
+
+  // ENGINE 2: Push state to Firebase Cloud Firestore (/site_content/main + chunked /site_media/{mediaId})
+  const pushStateToFirestore = useCallback(
+    async (stateToSave: SiteState): Promise<boolean> => {
+      const currentUser = auth.currentUser;
+      if (!currentUser || !/^[a-zA-Z0-9_-]{1,128}$/.test(currentUser.uid)) {
+        return false;
+      }
+
+      const docPath = `${SITE_CONTENT_COLLECTION}/${SITE_CONTENT_DOC_ID}`;
+      const docRef = doc(db, SITE_CONTENT_COLLECTION, SITE_CONTENT_DOC_ID);
+
+      try {
+        setCloudSyncStatus('saving');
+        setCloudSyncError('');
+
+        // Extract large base64 images (> 28KB) into /site_media/{mediaId} so /site_content/main never exceeds 900KB
+        const rawPublicCopy = buildPublicCopyObject(stateToSave);
+        const extractedMedia = new Map<string, string>();
+        const compactPublicCopy = offloadLargeImagesForFirestore(
+          rawPublicCopy,
+          extractedMedia,
+          28000
+        ) as Partial<SiteState>;
+
+        // Upload any new chunked media assets to /site_media/{mediaId}
+        for (const [mediaId, dataUrl] of extractedMedia.entries()) {
+          mediaCacheRef.current.set(mediaId, dataUrl);
+          if (!uploadedMediaIdsRef.current.has(mediaId)) {
+            const mediaDocPath = `${SITE_MEDIA_COLLECTION}/${mediaId}`;
+            const mediaRef = doc(db, SITE_MEDIA_COLLECTION, mediaId);
+            try {
+              const existingMedia = await getDoc(mediaRef);
+              if (!existingMedia.exists()) {
+                await setDoc(mediaRef, {
+                  mediaId,
+                  dataUrl,
+                  updatedBy: currentUser.uid,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                });
+              }
+              uploadedMediaIdsRef.current.add(mediaId);
+            } catch (mediaErr) {
+              handleFirestoreError(mediaErr, OperationType.CREATE, mediaDocPath);
+            }
+          }
+        }
+
+        const payloadJson = JSON.stringify(compactPublicCopy);
+        if (payloadJson.length > MAX_PAYLOAD_LENGTH) {
+          throw new Error(
+            'حجم البيانات النصية يتجاوز الحد المسموح به للمزامنة السحابية (900KB).'
+          );
+        }
+
+        const authorizedEmails = extractAuthorizedEmails(stateToSave.staffMembers);
+        const isSuperAdminUser =
+          currentUser.email?.trim().toLowerCase() === 'yr.play.com@gmail.com';
+
+        let existsOnServer = hasRemoteDocRef.current;
+        if (!existsOnServer) {
+          try {
+            const existingSnap = await getDoc(docRef);
+            existsOnServer = existingSnap.exists();
+            if (existingSnap.exists()) {
+              hasRemoteDocRef.current = true;
+              const d = existingSnap.data();
+              if (typeof d.version === 'number') {
+                remoteVersionRef.current = d.version;
+              }
+            }
+          } catch (err) {
+            handleFirestoreError(err, OperationType.GET, docPath);
+          }
+        }
+
+        if (!existsOnServer) {
+          try {
+            await setDoc(docRef, {
               payloadJson,
               authorizedEmails,
               updatedBy: currentUser.uid,
-              version: nextVersion,
+              version: 1,
+              createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             });
-          } else {
-            // Tier 2 Staff Member: update payloadJson without mutating authorizedEmails
-            await updateDoc(docRef, {
-              payloadJson,
-              updatedBy: currentUser.uid,
-              version: nextVersion,
-              updatedAt: serverTimestamp(),
-            });
+            hasRemoteDocRef.current = true;
+            remoteVersionRef.current = 1;
+          } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, docPath);
           }
-          remoteVersionRef.current = nextVersion;
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, docPath);
+        } else {
+          const nextVersion = (remoteVersionRef.current || 1) + 1;
+          try {
+            if (isSuperAdminUser) {
+              await updateDoc(docRef, {
+                payloadJson,
+                authorizedEmails,
+                updatedBy: currentUser.uid,
+                version: nextVersion,
+                updatedAt: serverTimestamp(),
+              });
+            } else {
+              // Tier 2 Staff Member: update payloadJson without mutating authorizedEmails
+              await updateDoc(docRef, {
+                payloadJson,
+                updatedBy: currentUser.uid,
+                version: nextVersion,
+                updatedAt: serverTimestamp(),
+              });
+            }
+            remoteVersionRef.current = nextVersion;
+          } catch (err) {
+            handleFirestoreError(err, OperationType.UPDATE, docPath);
+          }
         }
-      }
 
-      setCloudSyncStatus('synced');
-      return true;
-    } catch (err) {
-      setCloudSyncStatus('error');
-      const msg = err instanceof Error ? err.message : String(err);
-      setCloudSyncError(msg);
+        hasUnsavedLocalChangesRef.current = false;
+        setCloudSyncStatus('synced');
+        return true;
+      } catch (err) {
+        setCloudSyncStatus('error');
+        const msg = err instanceof Error ? err.message : String(err);
+        setCloudSyncError(msg);
+        return false;
+      }
+    },
+    []
+  );
+
+  // Unified push to both Server API and Firestore
+  const pushStateEverywhere = useCallback(
+    async (stateToSave: SiteState): Promise<boolean> => {
+      const [serverOk, firestoreOk] = await Promise.all([
+        pushStateToServerApi(stateToSave),
+        pushStateToFirestore(stateToSave),
+      ]);
+      if (serverOk || firestoreOk) {
+        hasUnsavedLocalChangesRef.current = false;
+        setCloudSyncStatus('synced');
+        return true;
+      }
       return false;
-    }
-  }, []);
+    },
+    [pushStateToServerApi, pushStateToFirestore]
+  );
 
   // Track Firebase Auth state and verify employee authorization
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       if (user && user.email) {
-        const matched = findStaffByEmail(user.email, latestStateRef.current.staffMembers);
-        const isOwner = user.email.trim().toLowerCase() === 'yr.play.com@gmail.com';
+        const cleanEmail = user.email.trim().toLowerCase();
+        const matched = findStaffByEmail(cleanEmail, latestStateRef.current.staffMembers);
+        const isOwner = cleanEmail === 'yr.play.com@gmail.com';
         if (isOwner || (matched && matched.active)) {
           setCloudAdminUser(user);
-          setLoggedInStaffEmail(user.email.trim().toLowerCase());
+          setLoggedInStaffEmail(cleanEmail);
           setIsAdminAuthenticated(true);
           try {
             localStorage.setItem(ADMIN_SESSION_KEY, 'true');
-            localStorage.setItem(STAFF_EMAIL_SESSION_KEY, user.email.trim().toLowerCase());
+            localStorage.setItem(STAFF_EMAIL_SESSION_KEY, cleanEmail);
           } catch {
             // ignore
           }
@@ -438,14 +697,99 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubAuth();
   }, []);
 
-  // Real-time listener on /site_content/main for ALL visitors & staff on ALL devices
+  // ENGINE 1 LISTENER: Fetch initial state from /api/site-state and subscribe to live SSE /api/site-stream
+  useEffect(() => {
+    let isMounted = true;
+    let eventSource: EventSource | null = null;
+
+    const fetchFromServerApi = async () => {
+      try {
+        const res = await fetch('/api/site-state', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          exists?: boolean;
+          version?: number;
+          state?: Partial<SiteState> | null;
+        };
+        if (!isMounted) return;
+        if (data.exists && data.state) {
+          // Do not overwrite if user just edited in the last 1.5s
+          if (Date.now() - lastLocalEditTimeRef.current > 1500 && !isSigningInPopupRef.current) {
+            applyIncomingRemoteState(data.state);
+          }
+          setCloudSyncStatus('synced');
+        } else {
+          // Seed server API with current state so visitors & employees immediately share the same baseline
+          void pushStateToServerApi(latestStateRef.current);
+        }
+      } catch {
+        // ignore if static host
+      }
+    };
+
+    void fetchFromServerApi();
+
+    try {
+      eventSource = new EventSource('/api/site-stream');
+      eventSource.onmessage = (event) => {
+        if (!isMounted) return;
+        try {
+          const payload = JSON.parse(event.data) as {
+            senderClientId?: string;
+            state?: Partial<SiteState>;
+          };
+          // Ignore self-echo from our own browser instance
+          if (payload.senderClientId && payload.senderClientId === CLIENT_INSTANCE_ID) {
+            return;
+          }
+          if (payload.state) {
+            applyIncomingRemoteState(payload.state);
+            setCloudSyncStatus('synced');
+          }
+        } catch {
+          // ignore malformed SSE message
+        }
+      };
+    } catch {
+      // ignore if SSE unsupported
+    }
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchFromServerApi();
+      }
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      isMounted = false;
+      eventSource?.close();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [applyIncomingRemoteState, pushStateToServerApi]);
+
+  // ENGINE 2 LISTENER: Real-time listener on Firestore /site_content/main for ALL visitors & staff on ALL devices
   useEffect(() => {
     const docPath = `${SITE_CONTENT_COLLECTION}/${SITE_CONTENT_DOC_ID}`;
     const docRef = doc(db, SITE_CONTENT_COLLECTION, SITE_CONTENT_DOC_ID);
 
     const unsubscribe = onSnapshot(
       docRef,
-      (snapshot) => {
+      async (snapshot) => {
+        // Ignore local latency-compensation echo from our own pending writes
+        if (snapshot.metadata.hasPendingWrites) {
+          return;
+        }
+        // If user is mid-Google-popup with unsaved local edits, don't let the auth-reconnect snapshot wipe their edits
+        if (isSigningInPopupRef.current && hasUnsavedLocalChangesRef.current) {
+          return;
+        }
+        if (Date.now() - lastLocalEditTimeRef.current < 1200) {
+          return;
+        }
+
         if (snapshot.exists()) {
           hasRemoteDocRef.current = true;
           const data = snapshot.data();
@@ -455,37 +799,21 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (typeof data.payloadJson === 'string' && data.payloadJson.length >= 2) {
             try {
               const parsed = JSON.parse(data.payloadJson);
-              const defaults = createDefaultSiteState();
-              isApplyingRemoteRef.current = true;
-              setSiteStateInternal((prev) => {
-                const normalized = normalizeSiteState(parsed, defaults);
-                return {
-                  ...normalized,
-                  contactMessages: prev.contactMessages,
-                  adminAuth: {
-                    ...(prev.adminAuth || DEFAULT_ADMIN_AUTH),
-                    lastPublishedAt:
-                      normalized.adminAuth?.lastPublishedAt ||
-                      prev.adminAuth?.lastPublishedAt ||
-                      DEFAULT_ADMIN_AUTH.lastPublishedAt,
-                  },
-                };
-              });
+              const hydrated = (await resolveMediaTokensInObject(
+                parsed,
+                resolveMediaIdFromFirestore
+              )) as Partial<SiteState>;
+              applyIncomingRemoteState(hydrated);
               setCloudSyncStatus('synced');
-              setTimeout(() => {
-                isApplyingRemoteRef.current = false;
-              }, 50);
             } catch {
               // ignore malformed JSON
             }
           }
         } else {
           hasRemoteDocRef.current = false;
-          setCloudSyncStatus(auth.currentUser ? 'synced' : 'local-only');
         }
       },
       (error) => {
-        setCloudSyncStatus('error');
         try {
           handleFirestoreError(error, OperationType.GET, docPath);
         } catch (handledErr) {
@@ -497,20 +825,34 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [applyIncomingRemoteState, resolveMediaIdFromFirestore]);
+
+  const scheduleRemoteSync = useCallback(
+    (nextState: SiteState) => {
+      hasUnsavedLocalChangesRef.current = true;
+      lastLocalEditTimeRef.current = Date.now();
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+      }
+      syncTimerRef.current = setTimeout(() => {
+        void pushStateEverywhere(nextState);
+      }, 220);
+    },
+    [pushStateEverywhere]
+  );
 
   const setSiteState: React.Dispatch<React.SetStateAction<SiteState>> = useCallback(
     (action) => {
       setSiteStateInternal((prev) => {
         const next = typeof action === 'function' ? action(prev) : action;
         latestStateRef.current = next;
-        if (!isApplyingRemoteRef.current && auth.currentUser) {
-          void pushStateToFirestore(next);
+        if (!isApplyingRemoteRef.current) {
+          scheduleRemoteSync(next);
         }
         return next;
       });
     },
-    [pushStateToFirestore]
+    [scheduleRemoteSync]
   );
 
   const updateSiteState = useCallback(
@@ -545,6 +887,9 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithGoogleAdmin = async (
     forceSelectAccount = true
   ): Promise<{ ok: boolean; isVisitor?: boolean; email?: string; error?: string }> => {
+    const stateBeforeSignIn = latestStateRef.current;
+    const hadLocalEdits = hasUnsavedLocalChangesRef.current;
+    isSigningInPopupRef.current = true;
     try {
       setCloudSyncError('');
       if (forceSelectAccount) {
@@ -583,7 +928,13 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {
           // ignore
         }
-        await pushStateToFirestore(latestStateRef.current);
+
+        const stateToPush = hadLocalEdits ? stateBeforeSignIn : latestStateRef.current;
+        if (hadLocalEdits) {
+          latestStateRef.current = stateBeforeSignIn;
+          setSiteStateInternal(stateBeforeSignIn);
+        }
+        await pushStateEverywhere(stateToPush);
         return { ok: true, email: cleanEmail };
       }
       return { ok: false, error: 'لم يتم استلام بيانات البريد الإلكتروني من Google.' };
@@ -591,16 +942,24 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const msg = err instanceof Error ? err.message : String(err);
       setCloudSyncError(msg);
       return { ok: false, error: msg };
+    } finally {
+      isSigningInPopupRef.current = false;
     }
   };
 
   const syncNowToCloud = async (overrideState?: SiteState): Promise<boolean> => {
     const targetState = overrideState || latestStateRef.current;
-    if (!auth.currentUser) {
-      const res = await signInWithGoogleAdmin(true);
-      if (!res.ok) return false;
+    const serverOk = await pushStateToServerApi(targetState);
+    if (auth.currentUser) {
+      const firestoreOk = await pushStateToFirestore(targetState);
+      return serverOk || firestoreOk;
     }
-    return pushStateToFirestore(targetState);
+    if (serverOk) {
+      return true;
+    }
+    const res = await signInWithGoogleAdmin(true);
+    if (!res.ok) return false;
+    return pushStateEverywhere(targetState);
   };
 
   const loginVisitorEmail = (email: string) => {
@@ -687,9 +1046,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {
         // ignore
       }
-      if (auth.currentUser) {
-        void pushStateToFirestore(next);
-      }
+      void pushStateEverywhere(next);
       return next;
     });
     return timestamp;
@@ -724,7 +1081,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       submittedAt: new Date().toLocaleString(),
       read: false,
     };
-    setSiteStateInternal((prev) => ({
+    setSiteState((prev) => ({
       ...prev,
       contactMessages: [newEntry, ...prev.contactMessages],
     }));

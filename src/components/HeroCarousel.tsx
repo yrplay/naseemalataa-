@@ -147,12 +147,13 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ language, onNavigate
 
   return (
     <div className="relative w-full p-0 mb-12 overflow-hidden">
-      <div className="relative min-h-[450px] md:min-h-[600px] lg:min-h-[760px] w-full">
+      <div className="relative w-full">
         {slides.map((slide, idx) => {
           const slideButtons = resolveSlideButtons(slide, t.products, t.productsCategories);
           const contentPos = slide.contentPosition || 'right';
           const buttonsPos = slide.buttonsPosition || contentPos || 'right';
           const verticalPos = slide.verticalPosition || 'center';
+          const imageFit = slide.imageFit || 'cover';
           const showTitle = slide.showTitle !== false;
           const offsetX = typeof slide.buttonOffsetX === 'number' ? slide.buttonOffsetX : 0;
           const offsetY = typeof slide.buttonOffsetY === 'number' ? slide.buttonOffsetY : 0;
@@ -160,6 +161,13 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ language, onNavigate
           const contentAlign = getHorizontalWrapperStyle(contentPos);
           const buttonsJustify = getButtonsRowJustify(buttonsPos);
           const verticalClass = getVerticalContainerClass(verticalPos);
+
+          const imgFitClass =
+            imageFit === 'natural'
+              ? 'w-full h-auto block'
+              : imageFit === 'contain'
+              ? 'w-full min-h-[380px] md:min-h-[540px] lg:min-h-[680px] object-contain bg-white'
+              : 'w-full min-h-[450px] md:min-h-[600px] lg:min-h-[760px] object-cover';
 
           return (
             <div
@@ -174,7 +182,9 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ language, onNavigate
                 src={slide.image}
                 alt={slide.title[language] || slide.title.en || 'Slide'}
                 referrerPolicy="no-referrer"
-                className="w-full min-h-[450px] md:min-h-[600px] lg:min-h-[760px] object-cover"
+                decoding="async"
+                fetchPriority={idx === 0 ? 'high' : 'auto'}
+                className={imgFitClass}
               />
               <div className={`absolute inset-0 flex justify-center z-20 ${verticalClass}`}>
                 <div className="max-w-[1320px] w-full mx-auto px-6 md:px-12">

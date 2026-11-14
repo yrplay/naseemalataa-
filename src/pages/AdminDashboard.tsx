@@ -611,19 +611,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
               const ts = publishChanges();
               const ok = await syncNowToCloud();
               if (ok) {
-                notify(`تم حفظ ومزامنة التعديلات سحابياً مع جميع الأجهزة بنجاح (${ts}).`);
+                notify(`تم حفظ ومزامنة التعديلات للزوار والموظفين وجميع الأجهزة بنجاح (${ts}).`);
               } else {
-                notify('يرجى ربط حساب Google المعتمد لإتمام المزامنة السحابية مع الأجهزة الأخرى.');
+                notify('تم الحفظ محلياً؛ يرجى التحقق من الاتصال لإتمام المزامنة السحابية.');
               }
             }}
             className="px-4 py-2 text-xs font-semibold text-white bg-[#BE9C6A] hover:opacity-90 rounded transition-opacity whitespace-nowrap shrink-0 cursor-pointer"
           >
             <i className="fa fa-cloud-upload-alt me-1.5"></i>
-            {cloudAdminUser
-              ? cloudSyncStatus === 'saving'
-                ? 'جاري المزامنة السحابية...'
-                : 'مزامنة سحابية لكل الأجهزة (Cloud Sync)'
-              : 'تفعيل المزامنة السحابية (Google)'}
+            {cloudSyncStatus === 'saving'
+              ? 'جاري المزامنة الفورية...'
+              : 'حفظ ومزامنة للجميع (الزوار والموظفين)'}
           </button>
           <button
             type="button"
@@ -651,44 +649,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         </div>
       </header>
 
-      {/* Cloud Sync Banner if not connected with Google Admin */}
-      {!cloudAdminUser ? (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 text-amber-900 font-medium">
-            <i className="fa fa-exclamation-triangle text-amber-600"></i>
-            <span>
-              أنت مسجل الدخول محلياً فقط. لكي تظهر المنتجات والتعديلات في <strong>جميع الأجهزة والجوالات الأخرى فوراً</strong>، اضغط على زر ربط حساب Google السحابي:
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              const res = await signInWithGoogleAdmin();
-              if (res.ok) {
-                notify('تم تفعيل المزامنة السحابية الفورية مع جميع الأجهزة بنجاح!');
-              } else if (res.error) {
-                notify(res.error);
-              }
-            }}
-            className="px-3.5 py-1.5 bg-[#23838B] hover:bg-[#1a666d] text-white font-semibold rounded cursor-pointer shrink-0"
-          >
-            <i className="fab fa-google me-1.5"></i>
-            تفعيل المزامنة السحابية الآن ({cloudAdminUser ? 'متصل' : 'Google'})
-          </button>
+      {/* Real-Time Multi-Device Sync Banner */}
+      <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-900">
+        <div className="flex items-center gap-2 font-medium">
+          <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block"></span>
+          <span>
+            <strong>المزامنة الحية نشطة (بين المالك والموظفين والزوار):</strong> أي تعديل تقوم به أنت أو أي موظف يظهر فوراً وفي نفس اللحظة عند الزوار وباقي الموظفين بدون الحاجة لتحديث الصفحة
+            {cloudAdminUser ? ` (${cloudAdminUser.email})` : currentStaffMember ? ` (${currentStaffMember.email})` : ''}.
+          </span>
         </div>
-      ) : (
-        <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-900">
-          <div className="flex items-center gap-2 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block"></span>
-            <span>
-              <strong>المزامنة السحابية الفورية نشطة (Firebase Cloud Firestore):</strong> أي منتج تضيفه أو تعديل تقوم به يظهر تلقائياً وفي نفس اللحظة على جميع الأجهزة والجوالات ({cloudAdminUser.email}).
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
+          {!cloudAdminUser && (
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await signInWithGoogleAdmin();
+                if (res.ok) {
+                  notify('تم ربط حساب Google السحابي بنجاح!');
+                } else if (res.error) {
+                  notify(res.error);
+                }
+              }}
+              className="px-3 py-1 bg-[#23838B] hover:bg-[#1a666d] text-white font-semibold rounded cursor-pointer shrink-0 text-[11px]"
+            >
+              <i className="fab fa-google me-1"></i>
+              ربط حساب Google السحابي الإضافي
+            </button>
+          )}
           {cloudSyncError && (
             <span className="text-red-700 font-mono text-[11px]">{cloudSyncError}</span>
           )}
         </div>
-      )}
+      </div>
 
       {/* Main Workspace Layout: Sidebar + Content Viewport */}
       <div className="flex-1 flex flex-col lg:flex-row max-w-[1600px] w-full mx-auto">
@@ -2125,16 +2117,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                         )}
                       </div>
 
-                      <ImageInputField
-                        label="صورة خلفية الشريحة"
-                        value={slide.image}
-                        onChange={(url) =>
-                          updateThisSlide((s) => ({
-                            ...s,
-                            image: url,
-                          }))
-                        }
-                      />
+                      {/* 4. Slide Background Image (Full HD / 2K / Original Lossless) & Fit Mode */}
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">
+                              4. صورة الشريحة ودقة العرض (Full HD / 2K / بدون تقليص)
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              يتم رفع صور السلايدر بدقتها الأصلية الكاملة (أو حتى 2560px 2K) بدون تقليص حاد، مع إمكانية اختيار طريقة ملاءمة أبعاد البنر.
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-slate-700 me-1">
+                              ملاءمة أبعاد البنر:
+                            </span>
+                            {(
+                              [
+                                { id: 'cover', label: 'ملء الشاشة (Cover)' },
+                                { id: 'natural', label: 'أبعاد البنر الكاملة بدون قص (Natural 100%)' },
+                                { id: 'contain', label: 'احتواء كامل (Contain)' },
+                              ] as const
+                            ).map((fitOpt) => (
+                              <button
+                                key={fitOpt.id}
+                                type="button"
+                                onClick={() =>
+                                  updateThisSlide((s) => ({
+                                    ...s,
+                                    imageFit: fitOpt.id,
+                                  }))
+                                }
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition cursor-pointer ${
+                                  (slide.imageFit || 'cover') === fitOpt.id
+                                    ? 'bg-[#23838B] text-white border-[#23838B]'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {fitOpt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <ImageInputField
+                          label="صورة خلفية الشريحة (يفضل مقاس 1920×1080 أو أعلى)"
+                          preset="banner-hd"
+                          value={slide.image}
+                          onChange={(url) =>
+                            updateThisSlide((s) => ({
+                              ...s,
+                              image: url,
+                            }))
+                          }
+                        />
+                      </div>
                     </div>
                   );
                 })}

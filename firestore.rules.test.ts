@@ -28,4 +28,9 @@ test('firestore.rules enforces all 8 pillars, Tier 1 Super Admin, and Tier 2 Sta
   // 4. Tier 2 Staff cannot mutate authorizedEmails
   assert.ok(rulesContent.includes('incoming().authorizedEmails == existing().authorizedEmails'));
   assert.ok(rulesContent.includes('request.auth.token.email in existing().authorizedEmails'));
+
+  // 5. SiteMedia chunked storage rules enforce strict schema, size limit (<= 850000), and authorized staff access
+  assert.ok(rulesContent.includes('match /site_media/{mediaId}'));
+  assert.ok(rulesContent.includes('isValidSiteMedia(incoming(), mediaId)'));
+  assert.ok(rulesContent.includes('data.dataUrl.size() <= 850000'));
 });

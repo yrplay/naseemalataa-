@@ -3,6 +3,7 @@ export type LanguageCode = 'en' | 'ar' | 'ur' | 'hi';
 export type HeroButtonStyle = 'primary' | 'secondary' | 'white' | 'outline';
 export type HeroHorizontalPosition = 'right' | 'center' | 'left';
 export type HeroVerticalPosition = 'top' | 'center' | 'bottom';
+export type HeroImageFit = 'cover' | 'natural' | 'contain';
 
 export interface HeroSlideButton {
   id: string;
@@ -14,6 +15,7 @@ export interface HeroSlideButton {
 export interface HeroSlide {
   id: string;
   image: string;
+  imageFit?: HeroImageFit;
   title: Record<LanguageCode, string>;
   showTitle?: boolean;
   primaryBtnText?: Record<LanguageCode, string>;

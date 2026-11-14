@@ -35,6 +35,17 @@ service cloud.firestore {
       );
     }
 
+    // Tier 1 or Tier 2 Authorized Staff (listed in /site_content/main authorizedEmails)
+    function isAuthorizedStaff() {
+      return isVerifiedUser() && (
+        isAdmin() ||
+        (
+          exists(/databases/$(database)/documents/site_content/main) &&
+          request.auth.token.email in get(/databases/$(database)/documents/site_content/main).data.authorizedEmails
+        )
+      );
+    }
+
     // Validation Blueprint for SiteContent (with Pillar 5 Total Array Guarding on authorizedEmails)
     function isValidSiteContent(data) {
       return data.keys().hasAll(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
@@ -44,6 +55,17 @@ service cloud.firestore {
         data.authorizedEmails[0] is string && data.authorizedEmails[0].size() >= 3 && data.authorizedEmails[0].size() <= 128 &&
         data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
         data.version is int && data.version >= 1 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint for SiteMedia
+    function isValidSiteMedia(data, targetMediaId) {
+      return data.keys().hasAll(['mediaId', 'dataUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['mediaId', 'dataUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
+        data.mediaId is string && isValidId(data.mediaId) && data.mediaId == targetMediaId &&
+        data.dataUrl is string && data.dataUrl.size() >= 5 && data.dataUrl.size() <= 850000 &&
+        data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -90,6 +112,29 @@ service cloud.firestore {
         );
 
       allow delete: if false;
+    }
+
+    // High-resolution media assets (banners, product photos) referenced by /site_content/main
+    match /site_media/{mediaId} {
+      allow get: if isValidId(mediaId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(mediaId) &&
+        isValidSiteMedia(incoming(), mediaId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAuthorizedStaff();
+
+      allow update: if isVerifiedUser() &&
+        isValidId(mediaId) &&
+        isValidSiteMedia(incoming(), mediaId) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['dataUrl', 'updatedBy', 'updatedAt']) &&
+        isAuthorizedStaff();
+
+      allow delete: if isVerifiedUser() && isValidId(mediaId) && isAdmin();
     }
 
     // Admin registry

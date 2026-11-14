@@ -66,12 +66,54 @@
         }
       },
       "required": ["uid", "addedBy", "createdAt"]
+    },
+    "SiteMedia": {
+      "title": "SiteMedia",
+      "description": "High-resolution media asset (slider banner, product photo, or icon) stored separately to keep SiteContent lightweight.",
+      "type": "object",
+      "properties": {
+        "mediaId": {
+          "type": "string",
+          "description": "Deterministic ID of the media asset.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "dataUrl": {
+          "type": "string",
+          "description": "Base64 data URL of the image.",
+          "minLength": 5,
+          "maxLength": 850000
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID of the admin or staff member who uploaded the asset.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": ["mediaId", "dataUrl", "updatedBy", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
     "/site_content/{docId}": {
       "schema": { "$ref": "#/entities/SiteContent" },
       "description": "Publicly readable website CMS state document (docId = 'main') updated by authorized admins and staff."
+    },
+    "/site_media/{mediaId}": {
+      "schema": { "$ref": "#/entities/SiteMedia" },
+      "description": "Publicly readable high-resolution images and banners uploaded by authorized admins and staff."
     },
     "/admins/{adminUid}": {
       "schema": { "$ref": "#/entities/AdminRecord" },
