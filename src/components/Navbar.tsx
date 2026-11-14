@@ -603,9 +603,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onChange={(e) => {
                     setEmailInput(e.target.value);
                     const found = findStaffByEmail(e.target.value, siteState.staffMembers);
-                    setShowPasswordField(
-                      Boolean(found || e.target.value.trim().toLowerCase() === 'yr.play.com@gmail.com')
-                    );
+                    // Staff records are fetched only after Firebase authentication; show the
+                    // password field for any valid-looking email so first-time staff can sign in.
+                    setShowPasswordField(e.target.value.trim().includes('@'));
                   }}
                   placeholder="example@gmail.com"
                   className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:border-[#23838B]"
