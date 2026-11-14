@@ -242,23 +242,9 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
       };
     });
   }
-  if (!Array.isArray(merged.staffMembers) || merged.staffMembers.length === 0) {
-    merged.staffMembers = DEFAULT_STAFF_MEMBERS;
-  } else {
-    const hasOwner = merged.staffMembers.some(
-      (s) => s.email.trim().toLowerCase() === 'yr.play.com@gmail.com'
-    );
-    if (!hasOwner) {
-      merged.staffMembers = [DEFAULT_STAFF_MEMBERS[0], ...merged.staffMembers];
-    }
-  }
-  merged.staffMembers = (merged.staffMembers || []).map((member) => {
-    const { accessCode: _legacyAccessCode, ...safeMember } = member as StaffMember & { accessCode?: string };
-    return safeMember;
-  });
-  if (!Array.isArray(merged.staffAuditLog)) {
-    merged.staffAuditLog = defaults.staffAuditLog || [];
-  }
+  // Staff identities and audit records are loaded only after verified Firebase authentication.
+  merged.staffMembers = [];
+  merged.staffAuditLog = [];
   return merged;
 }
 
@@ -439,7 +425,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Save to localStorage as instant local cache
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(siteState));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ...siteState, staffMembers: [], staffAuditLog: [] })
+      );
     } catch {
       // Ignore quota errors
     }
