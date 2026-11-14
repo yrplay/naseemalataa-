@@ -859,23 +859,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
 
                       {/* Action Buttons */}
                       <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                        {member.active && !isCurrentSession && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              loginAdmin(member);
-                              onNotify(
-                                `تم التبديل لمعاينة اللوحة بصلاحيات "${member.name}" (${member.jobTitle}).`,
-                                'info'
-                              );
-                            }}
-                            className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-extrabold transition cursor-pointer flex items-center gap-1"
-                            title="تجربة اللوحة كما تظهر لهذا الموظف"
-                          >
-                            <i className="fas fa-user-check"></i>
-                            <span>تجربة صلاحياته</span>
-                          </button>
-                        )}
                         {isSuperAdmin && (
                           <button
                             type="button"
