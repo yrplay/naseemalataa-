@@ -273,6 +273,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [siteState, setSiteStateInternal] = useState<SiteState>(() => {
     const defaults = createDefaultSiteState();
+    defaults.staffMembers = [];
+    defaults.staffAuditLog = [];
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -280,7 +282,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return normalizeSiteState(parsed, defaults);
       }
     } catch {
-      // Fallback to default state
+      // Fallback to a public-only default state
     }
     return defaults;
   });
@@ -381,23 +383,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 60);
   }, []);
 
-  // Re-verify only a verified Firebase identity when the staff roster changes.
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user?.email || !user.emailVerified) return;
-    const cleanEmail = user.email.trim().toLowerCase();
-    const matched = findStaffByEmail(cleanEmail, siteState.staffMembers);
-    const isOwner = cleanEmail === 'yr.play.com@gmail.com';
-    if (isOwner || (matched && matched.active)) {
-      setCloudAdminUser(user);
-      setLoggedInStaffEmail(cleanEmail);
-      setIsAdminAuthenticated(true);
-    } else {
-      setCloudAdminUser(null);
-      setLoggedInStaffEmail('');
-      setIsAdminAuthenticated(false);
-    }
-  }, [siteState.staffMembers]);
+  // Administrative authorization is resolved exclusively by the Firebase auth
+  // listener below using admins/{uid} or staff_profiles/{uid}; never by email alone.
 
   // Derive the active profile only from the current verified Firebase user.
   const currentStaffMember: StaffMember | null = React.useMemo(() => {
