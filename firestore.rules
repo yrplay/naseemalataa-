@@ -2,16 +2,23 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if false; }
+
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 128 &&
+        id.matches('^[a-zA-Z0-9_\\-]+$');
     }
     function isSignedIn() { return request.auth != null; }
-    function isVerifiedUser() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true &&
+        request.auth.token.email is string;
+    }
     function isSuperAdmin() {
-      return isVerifiedUser() && (
-        request.auth.token.email == 'yr.play.com@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.uid == request.auth.uid &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.email == request.auth.token.email &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'super_admin' &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
     }
     function hasStaffProfile() {
       return isVerifiedUser() &&
@@ -21,12 +28,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/staff_profiles/$(request.auth.uid)).data.active == true;
     }
     function isAuthorizedStaff() { return isSuperAdmin() || hasStaffProfile(); }
+
     function isValidSiteContent(data) {
       return data.keys().hasAll(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
         data.keys().hasOnly(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
         data.payloadJson is string && data.payloadJson.size() >= 2 && data.payloadJson.size() <= 900000 &&
         data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
-        data.version is int && data.version >= 1 && data.createdAt is timestamp && data.updatedAt is timestamp;
+        data.version is int && data.version >= 1 &&
+        data.createdAt is timestamp && data.updatedAt is timestamp;
     }
     function isValidSiteMedia(data, targetMediaId) {
       return data.keys().hasAll(['mediaId', 'dataUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
@@ -48,28 +57,32 @@ service cloud.firestore {
         data.permissions.hasOnly(['overview', 'company', 'theme', 'hero', 'about', 'categories', 'products', 'marketplaces', 'pages', 'messages', 'staff']) &&
         data.active is bool && data.addedAt is string && data.addedAt.size() <= 40;
     }
+
     match /site_content/{docId} {
-      allow get: if isValidId(docId);
+      allow get: if docId == 'main';
       allow list: if false;
-      allow create: if isSuperAdmin() && isValidId(docId) &&
+      allow create: if isSuperAdmin() && docId == 'main' &&
         isValidSiteContent(request.resource.data) && request.resource.data.version == 1 &&
         request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
-      // Restrict publishing to super-admin until granular server-side RBAC is implemented.
-      allow update: if isSuperAdmin() && isValidId(docId) &&
+      allow update: if isSuperAdmin() && docId == 'main' &&
         isValidSiteContent(request.resource.data) &&
         request.resource.data.version == resource.data.version + 1 &&
         request.resource.data.createdAt == resource.data.createdAt &&
         request.resource.data.updatedAt == request.time &&
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt', 'authorizedEmails']);
+          .hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt']);
       allow delete: if false;
     }
+
     match /staff_profiles/{staffUid} {
-      allow get: if isVerifiedUser() && isValidId(staffUid) && (request.auth.uid == staffUid || isSuperAdmin());
+      allow get: if isVerifiedUser() && isValidId(staffUid) &&
+        (request.auth.uid == staffUid || isSuperAdmin());
       allow list: if isSuperAdmin();
-      allow create, update: if isSuperAdmin() && isValidId(staffUid) && isValidStaffProfile(request.resource.data, staffUid);
+      allow create, update: if isSuperAdmin() && isValidId(staffUid) &&
+        isValidStaffProfile(request.resource.data, staffUid);
       allow delete: if isSuperAdmin() && isValidId(staffUid);
     }
+
     match /site_media/{mediaId} {
       allow get: if isValidId(mediaId);
       allow list: if false;
@@ -83,16 +96,14 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dataUrl', 'updatedBy', 'updatedAt']);
       allow delete: if isSuperAdmin() && isValidId(mediaId);
     }
+
+    // Super-admin bootstrap and revocation are performed out-of-band in Firebase Console/Admin SDK.
+    // No client can create or modify its own super-admin grant.
     match /admins/{adminUid} {
-      allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isSuperAdmin());
+      allow get: if isVerifiedUser() && isValidId(adminUid) &&
+        (request.auth.uid == adminUid || isSuperAdmin());
       allow list: if false;
-      allow create: if isSuperAdmin() && isValidId(adminUid) &&
-        request.resource.data.keys().hasAll(['uid', 'addedBy', 'createdAt']) &&
-        request.resource.data.keys().hasOnly(['uid', 'addedBy', 'createdAt']) &&
-        request.resource.data.uid == adminUid && request.resource.data.addedBy == request.auth.uid &&
-        request.resource.data.createdAt == request.time;
-      allow update: if false;
-      allow delete: if isSuperAdmin() && isValidId(adminUid) && adminUid != request.auth.uid;
+      allow create, update, delete: if false;
     }
   }
 }
