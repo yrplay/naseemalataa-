@@ -253,6 +253,10 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
       merged.staffMembers = [DEFAULT_STAFF_MEMBERS[0], ...merged.staffMembers];
     }
   }
+  merged.staffMembers = (merged.staffMembers || []).map((member) => {
+    const { accessCode: _legacyAccessCode, ...safeMember } = member as StaffMember & { accessCode?: string };
+    return safeMember;
+  });
   if (!Array.isArray(merged.staffAuditLog)) {
     merged.staffAuditLog = defaults.staffAuditLog || [];
   }
@@ -597,9 +601,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
               permissions: member.permissions, active: member.active, addedAt: member.addedAt,
             });
           }
-          for (const staffDoc of existingStaff.docs) {
-            if (!retainedUids.has(staffDoc.id)) await deleteDoc(doc(db, 'staff_profiles', staffDoc.id));
-          }
         }
         hasUnsavedLocalChangesRef.current = false;
         setCloudSyncStatus('synced');
@@ -649,6 +650,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (profile.uid === user.uid && profile.email?.trim().toLowerCase() === cleanEmail && profile.active) privateStaff = [profile];
           }
         }
+        if (auth.currentUser?.uid !== user.uid) return;
         const authorized = isOwner || privateStaff.some((member) => member.email?.trim().toLowerCase() === cleanEmail && member.active);
         if (!authorized) {
           await signOut(auth);
