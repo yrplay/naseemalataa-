@@ -125,14 +125,12 @@ test('validateContactForm rejects empty or invalid inputs and accepts valid subm
   assert.deepEqual(valid.errors, {});
 });
 
-test('verifyAdminCredentials accepts username or email with matching password and rejects invalid credentials', () => {
-  assert.equal(verifyAdminCredentials('admin', 'Naseem@2026', DEFAULT_ADMIN_AUTH), true);
-  assert.equal(
-    verifyAdminCredentials('info@naseemalata.sa', 'Naseem@2026', DEFAULT_ADMIN_AUTH),
-    true
-  );
-  assert.equal(verifyAdminCredentials('admin', 'wrongpass', DEFAULT_ADMIN_AUTH), false);
-  assert.equal(verifyAdminCredentials('unknown', 'Naseem@2026', DEFAULT_ADMIN_AUTH), false);
+test('legacy client-side administrator credentials are disabled in favor of Firebase Authentication', () => {
+  assert.equal(DEFAULT_ADMIN_AUTH.username, '');
+  assert.equal(DEFAULT_ADMIN_AUTH.email, '');
+  assert.equal(DEFAULT_ADMIN_AUTH.password, '');
+  assert.equal(verifyAdminCredentials('admin', 'Naseem@2026', DEFAULT_ADMIN_AUTH), false);
+  assert.equal(verifyAdminCredentials('info@naseemalata.sa', 'Naseem@2026', DEFAULT_ADMIN_AUTH), false);
 
   assert.equal(
     validateAdminCredentialUpdate('admin', 'info@naseemalata.sa', 'NewPass123').valid,
