@@ -102,6 +102,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     logoutAdmin,
     setVisitorPreviewMode,
     cloudAdminUser,
+    isSuperAdmin,
   } = useSite();
 
   // Add / Edit form state
@@ -117,10 +118,8 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   const [active, setActive] = useState(true);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const isSuperAdmin = Boolean(
-    currentStaffMember?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL ||
-      cloudAdminUser?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL
-  );
+  // Elevated management controls require the private admins/{uid} authorization state.
+  const canManageStaff = isSuperAdmin;
 
   const detectedOrigin =
     typeof window !== 'undefined' &&
@@ -157,7 +156,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const handlePresetChange = (preset: StaffRolePreset) => {
-    if (!isSuperAdmin) return;
+    if (!canManageStaff) return;
     setRolePreset(preset);
     setJobTitle(STAFF_ROLE_PRESETS[preset].defaultTitleAr);
     if (preset !== 'custom') {
@@ -166,7 +165,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const togglePermission = (permKey: StaffPermissionKey) => {
-    if (!isSuperAdmin) return;
+    if (!canManageStaff) return;
     setPermissions((prev) => {
       const exists = prev.includes(permKey);
       const next = exists ? prev.filter((k) => k !== permKey) : [...prev, permKey];
@@ -177,7 +176,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
 
   const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSuperAdmin) {
+    if (!canManageStaff) {
       onNotify('عذراً، تعديل قائمة الإيميلات المصرح لها والصلاحيات متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
       return;
     }
@@ -260,7 +259,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const startEditStaff = (member: StaffMember) => {
-    if (!isSuperAdmin) {
+    if (!canManageStaff) {
       onNotify('تعديل بيانات الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
       return;
     }
@@ -275,7 +274,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const handleToggleActive = (member: StaffMember) => {
-    if (!isSuperAdmin) {
+    if (!canManageStaff) {
       onNotify('تعديل حالة الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
       return;
     }
@@ -297,7 +296,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const handleDeleteStaff = async (member: StaffMember) => {
-    if (!isSuperAdmin) {
+    if (!canManageStaff) {
       onNotify('حذف الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
       return;
     }
@@ -574,7 +573,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
             )}
           </div>
 
-          {!isSuperAdmin && (
+          {!canManageStaff && (
             <div className="mb-4 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold leading-relaxed flex items-start gap-2.5">
               <i className="fas fa-lock text-amber-600 mt-0.5"></i>
               <span>
@@ -584,7 +583,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
           )}
 
           <form onSubmit={handleSaveStaff} className="space-y-4">
-            <fieldset disabled={!isSuperAdmin} className="space-y-4 disabled:opacity-60">
+            <fieldset disabled={!canManageStaff} className="space-y-4 disabled:opacity-60">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
                 <label className="block text-xs font-extrabold text-gray-700 mb-1.5">
@@ -745,7 +744,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
 
             <button
               type="submit"
-              disabled={!isSuperAdmin}
+              disabled={!canManageStaff}
               className="w-full bg-[#2c8c5e] hover:bg-[#23704b] disabled:bg-gray-300 text-white font-extrabold py-3.5 rounded-2xl shadow-md transition flex items-center justify-center gap-2 text-sm cursor-pointer disabled:cursor-not-allowed"
             >
               <i className={`fas ${editingStaffId ? 'fa-save' : 'fa-user-check'}`}></i>
