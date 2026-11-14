@@ -567,7 +567,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (isSuperAdminUser) {
-          const existingStaff = await getDocs(collection(db, 'staff_profiles'));
           for (const member of stateToSave.staffMembers || []) {
             const uid = member.uid?.trim();
             if (!uid || !/^[a-zA-Z0-9_-]{1,128}$/.test(uid)) continue;
