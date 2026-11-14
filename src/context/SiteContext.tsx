@@ -1,8 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
 import {
+  collection,
+  deleteDoc,
+  deleteField,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -21,7 +25,6 @@ import {
 } from '../data/siteData';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
 import {
-  extractAuthorizedEmails,
   findStaffByEmail,
   hasStaffPermission,
 } from '../utils/siteLogic';
@@ -87,13 +90,6 @@ function hashStringToMediaId(str: string): string {
 }
 
 function buildPublicCopyObject(state: SiteState): Partial<SiteState> {
-  const sanitizedStaff: StaffMember[] = (state.staffMembers || DEFAULT_STAFF_MEMBERS).map(
-    (s) => ({
-      ...s,
-      accessCode: '',
-    })
-  );
-
   return {
     company: state.company,
     theme: state.theme,
@@ -107,7 +103,6 @@ function buildPublicCopyObject(state: SiteState): Partial<SiteState> {
     termsAndConditions: state.termsAndConditions,
     customPages: state.customPages,
     uiTranslations: state.uiTranslations,
-    staffMembers: sanitizedStaff,
   };
 }
 
@@ -518,7 +513,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         }
 
-        const authorizedEmails = extractAuthorizedEmails(stateToSave.staffMembers);
         let isSuperAdminUser =
           currentUser.email?.trim().toLowerCase() === 'yr.play.com@gmail.com';
 
@@ -554,7 +548,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             await setDoc(docRef, {
               payloadJson,
-              authorizedEmails,
               updatedBy: currentUser.uid,
               version: 1,
               createdAt: serverTimestamp(),
@@ -571,7 +564,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (isSuperAdminUser) {
               await updateDoc(docRef, {
                 payloadJson,
-                authorizedEmails,
+                authorizedEmails: deleteField(),
                 updatedBy: currentUser.uid,
                 version: nextVersion,
                 updatedAt: serverTimestamp(),
@@ -591,6 +584,23 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
+        if (isSuperAdminUser) {
+          const existingStaff = await getDocs(collection(db, 'staff_profiles'));
+          const retainedUids = new Set<string>();
+          for (const member of stateToSave.staffMembers || []) {
+            const uid = member.uid?.trim();
+            if (!uid || !/^[a-zA-Z0-9_-]{1,128}$/.test(uid)) continue;
+            retainedUids.add(uid);
+            await setDoc(doc(db, 'staff_profiles', uid), {
+              uid, id: member.id, email: member.email.trim().toLowerCase(),
+              name: member.name, jobTitle: member.jobTitle, rolePreset: member.rolePreset,
+              permissions: member.permissions, active: member.active, addedAt: member.addedAt,
+            });
+          }
+          for (const staffDoc of existingStaff.docs) {
+            if (!retainedUids.has(staffDoc.id)) await deleteDoc(doc(db, 'staff_profiles', staffDoc.id));
+          }
+        }
         hasUnsavedLocalChangesRef.current = false;
         setCloudSyncStatus('synced');
         return true;
@@ -613,44 +623,45 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [pushStateToFirestore]
   );
 
-  // Track Firebase Auth state and verify employee authorization
+  // Resolve roles from private Firestore profiles, not from public storefront content.
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user?.email && user.emailVerified) {
-        const cleanEmail = user.email.trim().toLowerCase();
-        const matched = findStaffByEmail(cleanEmail, latestStateRef.current.staffMembers);
-        const isOwner = cleanEmail === 'yr.play.com@gmail.com';
-        if (isOwner || (matched && matched.active)) {
-          setCloudAdminUser(user);
-          setLoggedInStaffEmail(cleanEmail);
-          setIsAdminAuthenticated(true);
-          try {
-            localStorage.setItem(ADMIN_SESSION_KEY, 'true');
-            localStorage.setItem(STAFF_EMAIL_SESSION_KEY, cleanEmail);
-          } catch {
-            // ignore
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user?.email || !user.emailVerified) {
+        setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false);
+        setSiteStateInternal((prev) => ({ ...prev, staffMembers: [] }));
+        try { localStorage.removeItem(ADMIN_SESSION_KEY); localStorage.removeItem(STAFF_EMAIL_SESSION_KEY); } catch { /* ignore */ }
+        return;
+      }
+      const cleanEmail = user.email.trim().toLowerCase();
+      const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+      try {
+        let privateStaff: StaffMember[] = [];
+        if (isOwner) {
+          const snapshot = await getDocs(collection(db, 'staff_profiles'));
+          privateStaff = snapshot.docs.map((item) => item.data() as StaffMember);
+          if (!privateStaff.some((member) => member.email?.trim().toLowerCase() === cleanEmail)) {
+            privateStaff.unshift({ ...DEFAULT_STAFF_MEMBERS[0], uid: user.uid, active: true });
           }
         } else {
-          setCloudAdminUser(null);
-          setLoggedInStaffEmail('');
-          setIsAdminAuthenticated(false);
-          try {
-            localStorage.removeItem(ADMIN_SESSION_KEY);
-            localStorage.removeItem(STAFF_EMAIL_SESSION_KEY);
-          } catch {
-            // ignore
+          const profileSnap = await getDoc(doc(db, 'staff_profiles', user.uid));
+          if (profileSnap.exists()) {
+            const profile = profileSnap.data() as StaffMember;
+            if (profile.uid === user.uid && profile.email?.trim().toLowerCase() === cleanEmail && profile.active) privateStaff = [profile];
           }
         }
-      } else {
-        setCloudAdminUser(null);
-        setLoggedInStaffEmail('');
-        setIsAdminAuthenticated(false);
-        try {
-          localStorage.removeItem(ADMIN_SESSION_KEY);
-          localStorage.removeItem(STAFF_EMAIL_SESSION_KEY);
-        } catch {
-          // ignore
+        const authorized = isOwner || privateStaff.some((member) => member.email?.trim().toLowerCase() === cleanEmail && member.active);
+        if (!authorized) {
+          await signOut(auth);
+          setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false);
+          setSiteStateInternal((prev) => ({ ...prev, staffMembers: [] }));
+          return;
         }
+        setSiteStateInternal((prev) => ({ ...prev, staffMembers: privateStaff }));
+        setCloudAdminUser(user); setLoggedInStaffEmail(cleanEmail); setIsAdminAuthenticated(true);
+        try { localStorage.setItem(ADMIN_SESSION_KEY, 'true'); localStorage.setItem(STAFF_EMAIL_SESSION_KEY, cleanEmail); } catch { /* ignore */ }
+      } catch (error) {
+        console.error('Unable to load private staff profile', error);
+        setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false);
       }
     });
     return () => unsubAuth();
@@ -791,9 +802,18 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCloudAdminUser(null);
           return { ok: false, error: 'يجب توثيق البريد الإلكتروني قبل تفعيل صلاحيات الإدارة.' };
         }
-        const matched = findStaffByEmail(cleanEmail, latestStateRef.current.staffMembers);
         const isOwner = cleanEmail === 'yr.play.com@gmail.com';
-
+        let matched: StaffMember | null = null;
+        if (!isOwner) {
+          const profileSnap = await getDoc(doc(db, 'staff_profiles', user.uid));
+          if (profileSnap.exists()) {
+            const profile = profileSnap.data() as StaffMember;
+            if (profile.uid === user.uid && profile.email?.trim().toLowerCase() === cleanEmail) {
+              matched = profile;
+              setSiteStateInternal((prev) => ({ ...prev, staffMembers: [profile] }));
+            }
+          }
+        }
         if (!isOwner && (!matched || !matched.active)) {
           await signOut(auth);
           setIsAdminAuthenticated(false);
@@ -808,6 +828,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { ok: false, isVisitor: true, email: cleanEmail, error: msg };
         }
 
+        if (isOwner) {
+          const snapshot = await getDocs(collection(db, 'staff_profiles'));
+          setSiteStateInternal((prev) => ({ ...prev, staffMembers: snapshot.docs.map((item) => item.data() as StaffMember) }));
+        }
         setCloudAdminUser(user);
         setLoggedInStaffEmail(cleanEmail);
         setSignedInVisitorEmail(cleanEmail);
