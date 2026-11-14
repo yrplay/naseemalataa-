@@ -290,16 +290,13 @@ export function validateContactForm(input: ContactFormInput): ContactValidationR
   };
 }
 
+/** @deprecated Administrator authentication must use Firebase Auth, never local state. */
 export function verifyAdminCredentials(
-  identifier: string,
-  password: string,
-  authConfig: { username: string; email: string; password: string }
+  _identifier: string,
+  _password: string,
+  _authConfig: { username: string; email: string; password: string }
 ): boolean {
-  const cleanId = identifier.trim().toLowerCase();
-  const validId =
-    cleanId === authConfig.username.trim().toLowerCase() ||
-    cleanId === authConfig.email.trim().toLowerCase();
-  return validId && password === authConfig.password;
+  return false;
 }
 
 export function validateAdminCredentialUpdate(
