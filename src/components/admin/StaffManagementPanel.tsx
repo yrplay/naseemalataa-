@@ -176,7 +176,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     });
   };
 
-  const handleSaveStaff = (e: React.FormEvent) => {
+  const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSuperAdmin) {
       onNotify('عذراً، تعديل قائمة الإيميلات المصرح لها والصلاحيات متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
@@ -205,6 +205,15 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     }
 
     if (editingStaffId) {
+      const previousMember = siteState.staffMembers.find((member) => member.id === editingStaffId);
+      if (previousMember?.uid && previousMember.uid !== cleanUid) {
+        try {
+          await deleteDoc(doc(db, 'staff_profiles', previousMember.uid));
+        } catch {
+          onNotify('تعذر تحديث معرّف حساب الموظف في قاعدة البيانات الخاصة.', 'danger');
+          return;
+        }
+      }
       const isPrimaryOwner = cleanEmail === SUPER_ADMIN_EMAIL;
       const finalPermissions: StaffPermissionKey[] = isPrimaryOwner
         ? [...ALL_STAFF_PERMISSIONS]
