@@ -45,6 +45,7 @@ service cloud.firestore {
         data.jobTitle is string && data.jobTitle.size() <= 160 &&
         data.rolePreset in ['super_admin', 'products_manager', 'content_editor', 'support_agent', 'custom'] &&
         data.permissions is list && data.permissions.size() <= 11 &&
+        data.permissions.hasOnly(['overview', 'company', 'theme', 'hero', 'about', 'categories', 'products', 'marketplaces', 'pages', 'messages', 'staff']) &&
         data.active is bool && data.addedAt is string && data.addedAt.size() <= 40;
     }
     match /site_content/{docId} {
