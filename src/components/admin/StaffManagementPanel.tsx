@@ -107,6 +107,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [uid, setUid] = useState('');
   const [rolePreset, setRolePreset] = useState<StaffRolePreset>('products_manager');
   const [jobTitle, setJobTitle] = useState(STAFF_ROLE_PRESETS.products_manager.defaultTitleAr);
   const [accessCode, setAccessCode] = useState('');
@@ -150,6 +151,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     setEditingStaffId(null);
     setName('');
     setEmail('');
+    setUid('');
     setRolePreset('products_manager');
     setJobTitle(STAFF_ROLE_PRESETS.products_manager.defaultTitleAr);
     setAccessCode('');
@@ -184,9 +186,10 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     }
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
+    const cleanUid = uid.trim();
 
-    if (!cleanName || !cleanEmail || !cleanEmail.includes('@')) {
-      onNotify('يرجى إدخال اسم الموظف وبريده الإلكتروني بشكل صحيح.', 'danger');
+    if (!cleanName || !cleanEmail || !cleanEmail.includes('@') || !/^[a-zA-Z0-9_-]{1,128}$/.test(cleanUid)) {
+      onNotify('يرجى إدخال الاسم والبريد الإلكتروني ومعرّف Firebase UID الصحيح للحساب.', 'danger');
       return;
     }
 
@@ -216,6 +219,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
             ? {
                 ...member,
                 name: cleanName,
+                uid: cleanUid,
                 email: isPrimaryOwner ? SUPER_ADMIN_EMAIL : cleanEmail,
                 rolePreset: isPrimaryOwner ? 'super_admin' : rolePreset,
                 jobTitle: jobTitle.trim() || STAFF_ROLE_PRESETS[rolePreset].defaultTitleAr,
@@ -231,6 +235,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     } else {
       const newMember: StaffMember = {
         id: 'staff-' + Date.now(),
+        uid: cleanUid,
         name: cleanName,
         email: cleanEmail,
         rolePreset,
@@ -258,6 +263,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     setEditingStaffId(member.id);
     setName(member.name);
     setEmail(member.email);
+    setUid(member.uid || '');
     setRolePreset(member.rolePreset);
     setJobTitle(member.jobTitle);
     setAccessCode(member.accessCode || '');
@@ -583,6 +589,15 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-extrabold text-gray-700 mb-1.5">
+                  Firebase UID للحساب *
+                </label>
+                <input type="text" required dir="ltr" value={uid} onChange={(e) => setUid(e.target.value)}
+                  placeholder="انسخ UID من Firebase Authentication"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 focus:border-[#2c8c5e] focus:outline-none text-sm font-mono" />
+                <p className="text-[10px] text-gray-400 mt-1">أنشئ حساب الموظف في Firebase Authentication أولاً، ثم أدخل UID المطابق لبريده</p>
+              </div>
               <div>
                 <label className="block text-xs font-extrabold text-gray-700 mb-1.5">
                   البريد الإلكتروني (للدخول) *
