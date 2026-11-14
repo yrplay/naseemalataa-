@@ -36,7 +36,6 @@ const SITE_CONTENT_DOC_ID = 'main';
 const SITE_MEDIA_COLLECTION = 'site_media';
 const MEDIA_REF_PREFIX = '__media__:';
 const MAX_PAYLOAD_LENGTH = 890000;
-const CLIENT_INSTANCE_ID = `client_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 export type CloudSyncStatus = 'connecting' | 'synced' | 'saving' | 'local-only' | 'error';
 
@@ -91,7 +90,7 @@ function buildPublicCopyObject(state: SiteState): Partial<SiteState> {
   const sanitizedStaff: StaffMember[] = (state.staffMembers || DEFAULT_STAFF_MEMBERS).map(
     (s) => ({
       ...s,
-      accessCode: s.accessCode || 'Naseem@2026',
+      accessCode: '',
     })
   );
 
@@ -109,11 +108,6 @@ function buildPublicCopyObject(state: SiteState): Partial<SiteState> {
     customPages: state.customPages,
     uiTranslations: state.uiTranslations,
     staffMembers: sanitizedStaff,
-    staffAuditLog: (state.staffAuditLog || []).slice(0, 60),
-    adminAuth: {
-      ...DEFAULT_ADMIN_AUTH,
-      lastPublishedAt: state.adminAuth?.lastPublishedAt || DEFAULT_ADMIN_AUTH.lastPublishedAt,
-    },
   };
 }
 
@@ -495,34 +489,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('storage', handleStorage);
   }, [applyIncomingRemoteState]);
 
-  // ENGINE 1: Push state to Express Server API (/api/site-state) -> broadcasts via SSE to all Visitors, Employees & Admins
-  const pushStateToServerApi = useCallback(
-    async (stateToSave: SiteState): Promise<boolean> => {
-      try {
-        const publicCopy = buildPublicCopyObject(stateToSave);
-        const actorEmail =
-          auth.currentUser?.email || loggedInStaffEmail || 'yr.play.com@gmail.com';
-        const res = await fetch('/api/site-state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            state: publicCopy,
-            actorEmail,
-            clientId: CLIENT_INSTANCE_ID,
-          }),
-        });
-        if (res.ok) {
-          setCloudSyncStatus('synced');
-          return true;
-        }
-      } catch {
-        // Server API may be unavailable on purely static hosts; Firestore handles sync there
-      }
-      return false;
-    },
-    [loggedInStaffEmail]
-  );
-
   // ENGINE 2: Push state to Firebase Cloud Firestore (/site_content/main + chunked /site_media/{mediaId})
   const pushStateToFirestore = useCallback(
     async (stateToSave: SiteState): Promise<boolean> => {
@@ -667,21 +633,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     []
   );
 
-  // Unified push to both Server API and Firestore
+  // Firestore is the single authoritative synchronization engine.
   const pushStateEverywhere = useCallback(
-    async (stateToSave: SiteState): Promise<boolean> => {
-      const [serverOk, firestoreOk] = await Promise.all([
-        pushStateToServerApi(stateToSave),
-        pushStateToFirestore(stateToSave),
-      ]);
-      if (serverOk || firestoreOk) {
-        hasUnsavedLocalChangesRef.current = false;
-        setCloudSyncStatus('synced');
-        return true;
-      }
-      return false;
-    },
-    [pushStateToServerApi, pushStateToFirestore]
+    (stateToSave: SiteState): Promise<boolean> => pushStateToFirestore(stateToSave),
+    [pushStateToFirestore]
   );
 
   // Track Firebase Auth state and verify employee authorization
@@ -710,79 +665,6 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     return () => unsubAuth();
   }, []);
-
-  // ENGINE 1 LISTENER: Fetch initial state from /api/site-state and subscribe to live SSE /api/site-stream
-  useEffect(() => {
-    let isMounted = true;
-    let eventSource: EventSource | null = null;
-
-    const fetchFromServerApi = async () => {
-      try {
-        const res = await fetch('/api/site-state', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          exists?: boolean;
-          version?: number;
-          state?: Partial<SiteState> | null;
-        };
-        if (!isMounted) return;
-        if (data.exists && data.state) {
-          // Do not overwrite if user just edited in the last 1.5s
-          if (Date.now() - lastLocalEditTimeRef.current > 1500 && !isSigningInPopupRef.current) {
-            applyIncomingRemoteState(data.state);
-          }
-          setCloudSyncStatus('synced');
-        } else {
-          // Seed server API with current state so visitors & employees immediately share the same baseline
-          void pushStateToServerApi(latestStateRef.current);
-        }
-      } catch {
-        // ignore if static host
-      }
-    };
-
-    void fetchFromServerApi();
-
-    try {
-      eventSource = new EventSource('/api/site-stream');
-      eventSource.onmessage = (event) => {
-        if (!isMounted) return;
-        try {
-          const payload = JSON.parse(event.data) as {
-            senderClientId?: string;
-            state?: Partial<SiteState>;
-          };
-          // Ignore self-echo from our own browser instance
-          if (payload.senderClientId && payload.senderClientId === CLIENT_INSTANCE_ID) {
-            return;
-          }
-          if (payload.state) {
-            applyIncomingRemoteState(payload.state);
-            setCloudSyncStatus('synced');
-          }
-        } catch {
-          // ignore malformed SSE message
-        }
-      };
-    } catch {
-      // ignore if SSE unsupported
-    }
-
-    const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === 'visible') {
-        void fetchFromServerApi();
-      }
-    };
-    window.addEventListener('focus', handleVisibilityOrFocus);
-    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-
-    return () => {
-      isMounted = false;
-      eventSource?.close();
-      window.removeEventListener('focus', handleVisibilityOrFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-    };
-  }, [applyIncomingRemoteState, pushStateToServerApi]);
 
   // ENGINE 2 LISTENER: Real-time listener on Firestore /site_content/main for ALL visitors & staff on ALL devices
   useEffect(() => {
@@ -963,17 +845,11 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const syncNowToCloud = async (overrideState?: SiteState): Promise<boolean> => {
     const targetState = overrideState || latestStateRef.current;
-    const serverOk = await pushStateToServerApi(targetState);
-    if (auth.currentUser) {
-      const firestoreOk = await pushStateToFirestore(targetState);
-      return serverOk || firestoreOk;
+    if (!auth.currentUser) {
+      const res = await signInWithGoogleAdmin(true);
+      if (!res.ok) return false;
     }
-    if (serverOk) {
-      return true;
-    }
-    const res = await signInWithGoogleAdmin(true);
-    if (!res.ok) return false;
-    return pushStateEverywhere(targetState);
+    return pushStateToFirestore(targetState);
   };
 
   const loginVisitorEmail = (email: string) => {

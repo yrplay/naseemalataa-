@@ -4,7 +4,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 import { useSite } from '../../context/SiteContext';
 import { StaffMember } from '../../data/siteData';
-import { authenticateStaffLogin, findStaffByEmail } from '../../utils/siteLogic';
+import { findStaffByEmail } from '../../utils/siteLogic';
 
 export interface AdminLoginGateProps {
   children?: React.ReactNode;
@@ -40,7 +40,8 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
 
       try {
         const cleanEmail = (currentUser.email || '').trim().toLowerCase();
-        const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+        const isVerified = currentUser.emailVerified;
+        const isOwner = isVerified && cleanEmail === 'yr.play.com@gmail.com';
 
         // 1. Check /admins/{uid} in Firestore
         let isSuperAdminDoc = false;
@@ -70,9 +71,8 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
         }
 
         const matchedStaff = findStaffByEmail(cleanEmail, siteState.staffMembers);
-        const isLocalActiveStaff = Boolean(matchedStaff && matchedStaff.active);
 
-        if (isOwner || isSuperAdminDoc || isInRemoteAuthorizedEmails || isLocalActiveStaff) {
+        if (isVerified && (isOwner || isSuperAdminDoc || isInRemoteAuthorizedEmails)) {
           if (isMounted) {
             setUser(currentUser);
             setIsAuthorized(true);
@@ -111,26 +111,13 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
     e.preventDefault();
     setError('');
 
-    // First verify against authorized staff members and access codes
-    const staffAuth = authenticateStaffLogin(
-      email,
-      password,
-      siteState.staffMembers,
-      siteState.adminAuth
-    );
-
-    if (staffAuth.staff) {
-      setIsAuthorized(true);
-      onLoginSuccess?.(staffAuth.staff);
-      return;
-    }
-
-    // Fallback to Firebase Email/Password authentication if configured
+    // Administrative access requires Firebase Authentication.
+    // Local access codes are never treated as proof of identity.
     setChecking(true);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch {
-      setError(staffAuth.error || 'البريد الإلكتروني أو كود الدخول غير صحيح.');
+      setError('تعذر تسجيل الدخول. تحقق من بيانات Firebase وأن البريد موثّق ومصرح له.');
       setChecking(false);
     }
   };
