@@ -240,6 +240,7 @@ export type StaffRolePreset =
 
 export interface StaffMember {
   id: string;
+  uid?: string;
   name: string;
   email: string;
   jobTitle: string;
