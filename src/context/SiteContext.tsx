@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
 import {
   collection,
-  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -590,11 +589,9 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (isSuperAdminUser) {
           const existingStaff = await getDocs(collection(db, 'staff_profiles'));
-          const retainedUids = new Set<string>();
           for (const member of stateToSave.staffMembers || []) {
             const uid = member.uid?.trim();
             if (!uid || !/^[a-zA-Z0-9_-]{1,128}$/.test(uid)) continue;
-            retainedUids.add(uid);
             await setDoc(doc(db, 'staff_profiles', uid), {
               uid, id: member.id, email: member.email.trim().toLowerCase(),
               name: member.name, jobTitle: member.jobTitle, rolePreset: member.rolePreset,
