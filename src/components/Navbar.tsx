@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { LanguageCode } from '../data/siteData';
 import { useSite } from '../context/SiteContext';
-import { authenticateStaffLogin, findStaffByEmail } from '../utils/siteLogic';
+import { findStaffByEmail } from '../utils/siteLogic';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebase';
 
 interface NavbarProps {
   currentPath: string;
@@ -24,7 +26,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     loginVisitorEmail,
     visitorPreviewMode,
     setVisitorPreviewMode,
-    loginAdmin,
     logoutAdmin,
     signInWithGoogleAdmin,
   } = useSite();
@@ -100,7 +101,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  const handleEmailSignIn = (e: React.FormEvent) => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthNotice(null);
     const cleanEmail = emailInput.trim().toLowerCase();
@@ -116,46 +117,35 @@ export const Navbar: React.FC<NavbarProps> = ({
     const isOwner = cleanEmail === 'yr.play.com@gmail.com';
 
     if (isOwner || (matchedStaff && matchedStaff.active)) {
-      // If password field is not shown yet and staff member has an access code, prompt or verify
-      if (passwordInput.trim()) {
-        const result = authenticateStaffLogin(
-          cleanEmail,
-          passwordInput,
-          siteState.staffMembers,
-          siteState.adminAuth
-        );
-        if (result.staff) {
-          loginAdmin(result.staff);
-          setEmailInput('');
-          setPasswordInput('');
-          setShowPasswordField(false);
-          setLoginModalOpen(false);
-          return;
-        }
+      if (!passwordInput.trim()) {
+        setShowPasswordField(true);
         setAuthNotice({
-          type: 'error',
-          text: result.error || 'كود الدخول غير مطابق لهذا البريد.',
+          type: 'info',
+          text: 'أدخل كلمة مرور حساب Firebase المعتمد، أو استخدم تسجيل الدخول عبر Google.',
         });
         return;
       }
-
-      // If no password entered yet, check if they have a required accessCode or allow quick staff email recognition
-      if (matchedStaff && (!matchedStaff.accessCode || matchedStaff.accessCode.trim() === '')) {
-        loginAdmin(matchedStaff);
-        setEmailInput('');
-        setLoginModalOpen(false);
-        return;
+      try {
+        await signInWithEmailAndPassword(auth, cleanEmail, passwordInput);
+        setAuthNotice({
+          type: 'success',
+          text: 'تم التحقق من بيانات الدخول. جارٍ التحقق من صلاحيات الحساب...',
+        });
+        setPasswordInput('');
+        setTimeout(() => {
+          setLoginModalOpen(false);
+          setAuthNotice(null);
+        }, 900);
+      } catch {
+        setAuthNotice({
+          type: 'error',
+          text: 'تعذر تسجيل الدخول. تحقق من كلمة مرور Firebase وتوثيق البريد.',
+        });
       }
-
-      setShowPasswordField(true);
-      setAuthNotice({
-        type: 'info',
-        text: 'هذا البريد مسجل ضمن قائمة الأدمنز/الموظفين. أدخل كود الدخول الخاص بك أو اضغط على زر Google أعلاه.',
-      });
       return;
     }
 
-    // Regular visitor email (not in staffMembers): sign in as normal visitor without showing any admin buttons
+    // A visitor email never grants administrative privileges.
     loginVisitorEmail(cleanEmail);
     setEmailInput('');
     setPasswordInput('');
