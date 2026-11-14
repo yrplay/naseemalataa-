@@ -333,8 +333,5 @@ export function hasStaffPermission(
   permission: StaffPermissionKey
 ): boolean {
   if (!staff || !staff.active) return false;
-  if (staff.email.trim().toLowerCase() === 'yr.play.com@gmail.com') {
-    return true;
-  }
   return Array.isArray(staff.permissions) && staff.permissions.includes(permission);
 }
