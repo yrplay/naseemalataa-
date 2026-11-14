@@ -172,6 +172,11 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
       ...(raw.theme || {}),
       headingFontFamily: raw.theme?.headingFontFamily || 'LIFTA SWASH V3',
     },
+    // Discard legacy client-side admin credentials even if they exist in old local caches.
+    adminAuth: {
+      ...DEFAULT_ADMIN_AUTH,
+      lastPublishedAt: raw.adminAuth?.lastPublishedAt || DEFAULT_ADMIN_AUTH.lastPublishedAt,
+    },
   };
   if (Array.isArray(merged.categories)) {
     merged.categories = merged.categories.map((cat, idx) => {
