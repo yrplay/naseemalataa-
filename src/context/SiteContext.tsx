@@ -300,21 +300,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return defaults;
   });
 
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(ADMIN_SESSION_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  // Authentication is restored only from Firebase Auth, never from localStorage.
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
 
-  const [loggedInStaffEmail, setLoggedInStaffEmail] = useState<string>(() => {
-    try {
-      return localStorage.getItem(STAFF_EMAIL_SESSION_KEY) || 'yr.play.com@gmail.com';
-    } catch {
-      return 'yr.play.com@gmail.com';
-    }
-  });
+  const [loggedInStaffEmail, setLoggedInStaffEmail] = useState<string>('');
 
   const [signedInVisitorEmail, setSignedInVisitorEmail] = useState<string | null>(() => {
     try {
@@ -406,43 +395,28 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 60);
   }, []);
 
-  // Automatically upgrade a signed-in visitor email to Admin/Staff if their email is added to staffMembers
-  useEffect(() => {
-    if (signedInVisitorEmail && !isAdminAuthenticated) {
-      const matched = findStaffByEmail(signedInVisitorEmail, siteState.staffMembers);
-      const isOwner = signedInVisitorEmail.trim().toLowerCase() === 'yr.play.com@gmail.com';
-      if (isOwner || (matched && matched.active)) {
-        setLoggedInStaffEmail(signedInVisitorEmail.trim().toLowerCase());
-        setIsAdminAuthenticated(true);
-        try {
-          localStorage.setItem(ADMIN_SESSION_KEY, 'true');
-          localStorage.setItem(STAFF_EMAIL_SESSION_KEY, signedInVisitorEmail.trim().toLowerCase());
-        } catch {
-          // ignore
-        }
-      }
-    }
-  }, [signedInVisitorEmail, isAdminAuthenticated, siteState.staffMembers]);
-
-  // Re-verify Firebase Auth user whenever staffMembers updates (fixes race condition where onAuthStateChanged fired before remote staffMembers loaded)
+  // Re-verify only a verified Firebase identity when the staff roster changes.
   useEffect(() => {
     const user = auth.currentUser;
-    if (user && user.email) {
-      const cleanEmail = user.email.trim().toLowerCase();
-      const matched = findStaffByEmail(cleanEmail, siteState.staffMembers);
-      const isOwner = cleanEmail === 'yr.play.com@gmail.com';
-      if (isOwner || (matched && matched.active)) {
-        setCloudAdminUser(user);
-        setLoggedInStaffEmail(cleanEmail);
-        setIsAdminAuthenticated(true);
-      }
+    if (!user?.email || !user.emailVerified) return;
+    const cleanEmail = user.email.trim().toLowerCase();
+    const matched = findStaffByEmail(cleanEmail, siteState.staffMembers);
+    const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+    if (isOwner || (matched && matched.active)) {
+      setCloudAdminUser(user);
+      setLoggedInStaffEmail(cleanEmail);
+      setIsAdminAuthenticated(true);
+    } else {
+      setCloudAdminUser(null);
+      setLoggedInStaffEmail('');
+      setIsAdminAuthenticated(false);
     }
   }, [siteState.staffMembers]);
 
-  // Derive active staff profile from siteState.staffMembers
+  // Derive the active profile only from the current verified Firebase user.
   const currentStaffMember: StaffMember | null = React.useMemo(() => {
-    if (!isAdminAuthenticated) return null;
-    const emailToLookup = cloudAdminUser?.email || loggedInStaffEmail || 'yr.play.com@gmail.com';
+    if (!isAdminAuthenticated || !cloudAdminUser?.email || !cloudAdminUser.emailVerified) return null;
+    const emailToLookup = cloudAdminUser.email;
     const found = findStaffByEmail(emailToLookup, siteState.staffMembers);
     if (found) {
       return found.active ? found : null;
@@ -642,7 +616,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Track Firebase Auth state and verify employee authorization
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user && user.email) {
+      if (user?.email && user.emailVerified) {
         const cleanEmail = user.email.trim().toLowerCase();
         const matched = findStaffByEmail(cleanEmail, latestStateRef.current.staffMembers);
         const isOwner = cleanEmail === 'yr.play.com@gmail.com';
@@ -658,9 +632,25 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else {
           setCloudAdminUser(null);
+          setLoggedInStaffEmail('');
+          setIsAdminAuthenticated(false);
+          try {
+            localStorage.removeItem(ADMIN_SESSION_KEY);
+            localStorage.removeItem(STAFF_EMAIL_SESSION_KEY);
+          } catch {
+            // ignore
+          }
         }
       } else {
         setCloudAdminUser(null);
+        setLoggedInStaffEmail('');
+        setIsAdminAuthenticated(false);
+        try {
+          localStorage.removeItem(ADMIN_SESSION_KEY);
+          localStorage.removeItem(STAFF_EMAIL_SESSION_KEY);
+        } catch {
+          // ignore
+        }
       }
     });
     return () => unsubAuth();
@@ -795,6 +785,12 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const user = cred.user;
       if (user && user.email) {
         const cleanEmail = user.email.trim().toLowerCase();
+        if (!user.emailVerified) {
+          await signOut(auth);
+          setIsAdminAuthenticated(false);
+          setCloudAdminUser(null);
+          return { ok: false, error: 'يجب توثيق البريد الإلكتروني قبل تفعيل صلاحيات الإدارة.' };
+        }
         const matched = findStaffByEmail(cleanEmail, latestStateRef.current.staffMembers);
         const isOwner = cleanEmail === 'yr.play.com@gmail.com';
 
@@ -855,36 +851,22 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginVisitorEmail = (email: string) => {
     const clean = email.trim().toLowerCase();
     if (!clean) return;
-    const matched = findStaffByEmail(clean, latestStateRef.current.staffMembers);
-    const isOwner = clean === 'yr.play.com@gmail.com';
     setSignedInVisitorEmail(clean);
     try {
       localStorage.setItem(VISITOR_EMAIL_SESSION_KEY, clean);
     } catch {
       // ignore
     }
-    if (isOwner || (matched && matched.active)) {
-      setLoggedInStaffEmail(clean);
-      setIsAdminAuthenticated(true);
-      setVisitorPreviewMode(false);
-      try {
-        localStorage.setItem(ADMIN_SESSION_KEY, 'true');
-        localStorage.setItem(STAFF_EMAIL_SESSION_KEY, clean);
-      } catch {
-        // ignore
-      }
-    } else {
-      setIsAdminAuthenticated(false);
-      try {
-        localStorage.removeItem(ADMIN_SESSION_KEY);
-      } catch {
-        // ignore
-      }
-    }
+    // An email string is visitor profile data, never proof of administrative identity.
   };
 
-  const loginAdmin = (staff?: StaffMember) => {
-    const email = staff?.email?.trim().toLowerCase() || 'yr.play.com@gmail.com';
+  const loginAdmin = (_staff?: StaffMember) => {
+    const user = auth.currentUser;
+    if (!user?.email || !user.emailVerified) return;
+    const email = user.email.trim().toLowerCase();
+    const matched = findStaffByEmail(email, latestStateRef.current.staffMembers);
+    if (email !== 'yr.play.com@gmail.com' && (!matched || !matched.active)) return;
+    setCloudAdminUser(user);
     setLoggedInStaffEmail(email);
     setSignedInVisitorEmail(email);
     setIsAdminAuthenticated(true);
