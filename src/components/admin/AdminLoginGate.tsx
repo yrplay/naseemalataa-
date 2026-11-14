@@ -4,7 +4,6 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 import { useSite } from '../../context/SiteContext';
 import { StaffMember } from '../../data/siteData';
-import { findStaffByEmail } from '../../utils/siteLogic';
 
 export interface AdminLoginGateProps {
   children?: React.ReactNode;
