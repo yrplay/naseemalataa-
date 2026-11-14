@@ -118,8 +118,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const isSuperAdmin = Boolean(
-    currentStaffMember?.rolePreset === 'super_admin' ||
-      currentStaffMember?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL ||
+    currentStaffMember?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL ||
       cloudAdminUser?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL
   );
 
