@@ -99,7 +99,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     siteState,
     updateSiteState,
     currentStaffMember,
-    loginAdmin,
     logoutAdmin,
     setVisitorPreviewMode,
     cloudAdminUser,
