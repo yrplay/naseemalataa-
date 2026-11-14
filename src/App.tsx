@@ -31,16 +31,33 @@ function AppRoutes() {
     logoutAdmin,
   } = useSite();
   const [currentPath, setCurrentPath] = useState<string>(() => {
-    return window.location.pathname || '/';
+    return (
+      (window.location.pathname || '/') +
+      (window.location.search || '') +
+      (window.location.hash || '')
+    );
   });
 
   useEffect(() => {
-    const handlePopState = () => {
-      setCurrentPath(window.location.pathname || '/');
+    const syncLocation = () => {
+      const fullUrl =
+        (window.location.pathname || '/') +
+        (window.location.search || '') +
+        (window.location.hash || '');
+      setCurrentPath(fullUrl);
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'visitor') {
+        setVisitorPreviewMode(true);
+      }
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+    syncLocation();
+    window.addEventListener('popstate', syncLocation);
+    window.addEventListener('hashchange', syncLocation);
+    return () => {
+      window.removeEventListener('popstate', syncLocation);
+      window.removeEventListener('hashchange', syncLocation);
+    };
+  }, [setVisitorPreviewMode]);
 
   const route = parseRoutePath(
     currentPath,
@@ -63,9 +80,15 @@ function AppRoutes() {
 
   const handleNavigate = (path: string) => {
     const cleanFull = path.startsWith('/') ? path : `/${path}`;
-    const [pathnameOnly] = cleanFull.split('?');
     window.history.pushState({}, '', cleanFull);
-    setCurrentPath(pathnameOnly || '/');
+    setCurrentPath(cleanFull || '/');
+    const qIndex = cleanFull.indexOf('?');
+    if (qIndex !== -1) {
+      const params = new URLSearchParams(cleanFull.slice(qIndex));
+      if (params.get('view') === 'visitor') {
+        setVisitorPreviewMode(true);
+      }
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

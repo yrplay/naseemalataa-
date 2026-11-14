@@ -98,6 +98,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     updateSiteState,
     currentStaffMember,
     loginAdmin,
+    logoutAdmin,
     setVisitorPreviewMode,
     cloudAdminUser,
   } = useSite();
@@ -114,6 +115,30 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   );
   const [active, setActive] = useState(true);
   const [showAccessCodeMap, setShowAccessCodeMap] = useState<Record<string, boolean>>({});
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const detectedOrigin =
+    typeof window !== 'undefined' &&
+    window.location.origin &&
+    !window.location.origin.includes('localhost')
+      ? window.location.origin
+      : 'https://ais-pre-vy4x6ad46ozqfzkgy5fd2x-472643680131.europe-west1.run.app';
+
+  const [customDomainUrl, setCustomDomainUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = window.localStorage.getItem('naseem_custom_domain_url');
+      if (saved) return saved;
+      if (!window.location.origin.includes('localhost')) {
+        return window.location.origin;
+      }
+    }
+    return detectedOrigin;
+  });
+
+  const cleanBaseUrl = (customDomainUrl.trim() || detectedOrigin).replace(/\/+$/, '');
+  const visitorRealUrl = `${cleanBaseUrl}/`;
+  const adminPortalRealUrl = `${cleanBaseUrl}/admin`;
+  const universalPortalRealUrl = `${cleanBaseUrl}/?portal=staff`;
 
   const resetForm = () => {
     setEditingStaffId(null);
@@ -257,15 +282,16 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     onNotify(`تم حذف حساب "${member.name}" وإلغاء وصوله للوحة التحكم.`, 'danger');
   };
 
-  const handleCopyLink = (path: string, label: string) => {
-    const fullUrl = `${window.location.origin}${path}`;
+  const handleCopyFullUrl = (fullUrl: string, label: string, key: string) => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(fullUrl);
     }
+    setCopiedKey(key);
+    setTimeout(() => {
+      setCopiedKey((prev) => (prev === key ? null : prev));
+    }, 2500);
     onNotify(`تم نسخ رابط ${label}: ${fullUrl}`, 'info');
   };
-
-  const originUrl = typeof window !== 'undefined' ? window.location.origin : 'https://naseemalata.sa';
 
   return (
     <div className="space-y-6">
@@ -292,7 +318,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
               type="button"
               onClick={() => {
                 setVisitorPreviewMode(true);
-                onNavigate('/');
+                onNavigate('/?view=visitor');
               }}
               className="bg-[#f39200] hover:bg-[#d98200] text-white font-extrabold px-4 py-3 rounded-2xl text-xs transition shadow-lg flex items-center gap-2 cursor-pointer"
             >
@@ -302,52 +328,178 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
           </div>
         </div>
 
-        {/* Links comparison cards */}
+        {/* Links comparison cards (CSS selector 1 & CSS selector 2) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-5 border-t border-white/10">
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/15 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-xs font-extrabold text-[#4ad295]">
-                <i className="fas fa-globe"></i>
-                <span>الواجهة العامة للعملاء والزوار (صفر أدوات أدمن)</span>
+          {/* Card 1: Public Visitor Link */}
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/15 flex flex-col justify-between gap-3">
+            <div className="min-w-0 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-extrabold text-[#4ad295]">
+                  <i className="fas fa-globe"></i>
+                  <span>1. رابط الواجهة العامة للعملاء والزوار (صفر أدوات أدمن)</span>
+                </div>
+                <span className="text-[10px] bg-[#4ad295]/20 text-[#4ad295] px-2 py-0.5 rounded-full font-bold">
+                  رابط فعلي حي
+                </span>
               </div>
-              <div className="text-sm font-mono font-bold text-white truncate mt-1" dir="ltr">
-                {originUrl}/
-              </div>
-              <p className="text-[11px] text-white/70 mt-1">
-                الرابط المخصص للعملاء، لا يحتوي على أي إشارة أو زر للوحة التحكم.
+
+              <a
+                href="/?view=visitor"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setVisitorPreviewMode(true);
+                  onNavigate('/?view=visitor');
+                }}
+                dir="ltr"
+                className="block w-full bg-black/25 hover:bg-black/35 border border-white/15 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono font-bold text-[#4ad295] underline decoration-[#4ad295]/50 break-all transition cursor-pointer"
+                title="اضغط لفتح واجهة الزوار الحية الآن"
+              >
+                {visitorRealUrl}
+              </a>
+
+              <p className="text-[11px] text-white/75">
+                اضغط على الرابط أعلاه لفتحه مباشرة كزائر، أو انسخه لمشاركته مع العملاء (لا يظهر فيه أي زر للوحة التحكم).
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => handleCopyLink('/', 'واجهة العملاء العامة')}
-              className="bg-white/15 hover:bg-white/25 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer flex items-center gap-1.5"
-            >
-              <i className="fas fa-copy"></i>
-              <span>نسخ</span>
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <a
+                href="/?view=visitor"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setVisitorPreviewMode(true);
+                  onNavigate('/?view=visitor');
+                }}
+                className="bg-[#4ad295] hover:bg-[#3bc184] text-[#0f241c] px-3.5 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <i className="fas fa-external-link-alt"></i>
+                <span>فتح واجهة الزوار الآن</span>
+              </a>
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyFullUrl(visitorRealUrl, 'واجهة العملاء العامة', 'visitor-main')
+                }
+                className="bg-white/15 hover:bg-white/25 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <i className={`fas ${copiedKey === 'visitor-main' ? 'fa-check text-[#4ad295]' : 'fa-copy'}`}></i>
+                <span>{copiedKey === 'visitor-main' ? 'تم نسخ الرابط ✓' : 'نسخ رابط الزوار'}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/15 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-xs font-extrabold text-amber-300">
-                <i className="fas fa-user-lock"></i>
-                <span>بوابة دخول الأدمنز والموظفين المستقلة</span>
+          {/* Card 2: Staff & Admin Portal Link */}
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/15 flex flex-col justify-between gap-3">
+            <div className="min-w-0 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-extrabold text-amber-300">
+                  <i className="fas fa-user-lock"></i>
+                  <span>2. رابط بوابة دخول الأدمنز والموظفين المستقلة</span>
+                </div>
+                <span className="text-[10px] bg-amber-400/20 text-amber-200 px-2 py-0.5 rounded-full font-bold">
+                  بوابة الموظفين
+                </span>
               </div>
-              <div className="text-sm font-mono font-bold text-white truncate mt-1" dir="ltr">
-                {originUrl}/admin &nbsp;|&nbsp; /portal &nbsp;|&nbsp; /staff
+
+              <div className="space-y-1.5">
+                <a
+                  href="/admin"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onNavigate('/admin');
+                  }}
+                  dir="ltr"
+                  className="block w-full bg-black/25 hover:bg-black/35 border border-amber-400/25 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono font-bold text-amber-300 underline decoration-amber-300/50 break-all transition cursor-pointer"
+                  title="الرابط المباشر لبوابة دخول الموظفين والأدمن"
+                >
+                  {adminPortalRealUrl}
+                </a>
+                <div className="flex items-center justify-between gap-2 text-[11px] text-white/75 px-1">
+                  <span>رابط بديل يعمل على جميع الاستضافات:</span>
+                  <a
+                    href="/?portal=staff"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onNavigate('/?portal=staff');
+                    }}
+                    dir="ltr"
+                    className="font-mono text-amber-200 hover:underline"
+                  >
+                    {universalPortalRealUrl}
+                  </a>
+                </div>
               </div>
-              <p className="text-[11px] text-white/70 mt-1">
-                أرسل هذا الرابط للموظفين لتسجيل الدخول بإيميلاتهم وصلاحياتهم المحددة.
-              </p>
             </div>
-            <button
-              type="button"
-              onClick={() => handleCopyLink('/admin', 'بوابة الموظفين والأدمن')}
-              className="bg-amber-500/30 hover:bg-amber-500/40 text-amber-200 border border-amber-400/30 px-3.5 py-2.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer flex items-center gap-1.5"
-            >
-              <i className="fas fa-copy"></i>
-              <span>نسخ رابط البوابة</span>
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  logoutAdmin();
+                  onNavigate('/admin');
+                }}
+                className="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5"
+                title="تسجيل الخروج الحالي وفتح شاشة دخول الموظفين لتجربتها"
+              >
+                <i className="fas fa-sign-in-alt"></i>
+                <span>فتح شاشة دخول الموظفين</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyFullUrl(adminPortalRealUrl, 'بوابة الموظفين (/admin)', 'portal-admin')
+                }
+                className="bg-amber-500/30 hover:bg-amber-500/40 text-amber-100 border border-amber-400/30 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+              >
+                <i className={`fas ${copiedKey === 'portal-admin' ? 'fa-check text-emerald-300' : 'fa-copy'}`}></i>
+                <span>{copiedKey === 'portal-admin' ? 'تم النسخ ✓' : 'نسخ رابط /admin'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyFullUrl(universalPortalRealUrl, 'بوابة الموظفين (?portal=staff)', 'portal-query')
+                }
+                className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
+              >
+                <i className={`fas ${copiedKey === 'portal-query' ? 'fa-check text-emerald-300' : 'fa-link'}`}></i>
+                <span>{copiedKey === 'portal-query' ? 'تم النسخ ✓' : 'نسخ ?portal=staff'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Optional Domain Customizer Bar so links match Vercel / Custom Domain */}
+        <div className="mt-3 pt-3 border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-white/80">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-link text-[#4ad295]"></i>
+            <span>نطاق الموقع المعتمد لتوليد الروابط أعلاه (يمكنك وضع رابط Vercel أو الدومين الرسمي):</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="url"
+              dir="ltr"
+              value={customDomainUrl}
+              onChange={(e) => {
+                setCustomDomainUrl(e.target.value);
+                if (typeof window !== 'undefined') {
+                  window.localStorage.setItem('naseem_custom_domain_url', e.target.value);
+                }
+              }}
+              placeholder="https://naseemalata.sa"
+              className="bg-black/30 border border-white/20 rounded-xl px-3 py-1.5 text-xs font-mono text-white w-64 sm:w-80 focus:outline-none focus:border-[#4ad295]"
+            />
+            {typeof window !== 'undefined' && !window.location.origin.includes('localhost') && customDomainUrl !== window.location.origin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomDomainUrl(window.location.origin);
+                  window.localStorage.setItem('naseem_custom_domain_url', window.location.origin);
+                }}
+                className="text-[11px] bg-white/15 hover:bg-white/25 px-2.5 py-1.5 rounded-xl font-bold cursor-pointer"
+              >
+                الرابط الحالي
+              </button>
+            )}
           </div>
         </div>
       </div>

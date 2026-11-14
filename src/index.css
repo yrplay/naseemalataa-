@@ -1,10 +1,27 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "LIFTA SWASH V3";
+  src: url("/fonts/LiftaSwashV3.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lifta Swash V3";
+  src: url("/fonts/LiftaSwashV3.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --primary: #23838B;
   --secondary: #BE9C6A;
   --light: #F7F8FC;
   --dark: #111111;
+  --heading-font: "LIFTA SWASH V3", "Lifta Swash V3", "Lora", "Cairo", serif;
 }
 
 body {
@@ -19,10 +36,17 @@ body {
   -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
 }
 
-h1, .h1, h2, .h2, h3, .h3, h4, .h4, h5, .h5, h6, .h6 {
+h1, .h1, h2, .h2 {
+  font-family: var(--heading-font);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #BE9C6A;
+}
+
+h3, .h3, h4, .h4, h5, .h5, h6, .h6 {
   font-family: "Lora", "Cairo", serif;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   color: #BE9C6A;
 }
 

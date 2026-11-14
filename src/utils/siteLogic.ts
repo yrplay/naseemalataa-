@@ -39,10 +39,27 @@ export function parseRoutePath(
   customPages: CustomPage[] = []
 ): PageRoute {
   const decoded = safeDecodeUri(rawPath);
-  const clean = decoded
-    .replace(/^https?:\/\/naseemalata\.sa/i, '')
-    .split('?')[0]
-    .split('#')[0];
+  const withoutDomain = decoded.replace(/^https?:\/\/[^/]+/i, '');
+
+  // Check query string or hash for portal/admin triggers
+  const queryPart = withoutDomain.includes('?') ? withoutDomain.split('?')[1].split('#')[0] : '';
+  const hashPart = withoutDomain.includes('#') ? withoutDomain.split('#')[1] : '';
+  const searchParams = new URLSearchParams(queryPart);
+  const portalParam = (searchParams.get('portal') || searchParams.get('mode') || '').toLowerCase();
+  const normalizedHash = hashPart.replace(/^\/+|\/+$/g, '').trim().toLowerCase();
+
+  if (
+    portalParam === 'admin' ||
+    portalParam === 'staff' ||
+    searchParams.get('admin') === '1' ||
+    normalizedHash === 'admin' ||
+    normalizedHash === 'portal' ||
+    normalizedHash === 'staff'
+  ) {
+    return { type: 'admin' };
+  }
+
+  const clean = withoutDomain.split('?')[0].split('#')[0];
   const normalized = clean.replace(/^\/+|\/+$/g, '').trim().toLowerCase();
 
   if (!normalized || normalized === 'home') {

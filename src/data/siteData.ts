@@ -1,13 +1,31 @@
 export type LanguageCode = 'en' | 'ar' | 'ur' | 'hi';
 
+export type HeroButtonStyle = 'primary' | 'secondary' | 'white' | 'outline';
+export type HeroHorizontalPosition = 'right' | 'center' | 'left';
+export type HeroVerticalPosition = 'top' | 'center' | 'bottom';
+
+export interface HeroSlideButton {
+  id: string;
+  label: Record<LanguageCode, string>;
+  link: string;
+  style: HeroButtonStyle;
+}
+
 export interface HeroSlide {
   id: string;
   image: string;
   title: Record<LanguageCode, string>;
+  showTitle?: boolean;
   primaryBtnText?: Record<LanguageCode, string>;
   primaryBtnLink?: string;
   secondaryBtnText?: Record<LanguageCode, string>;
   secondaryBtnLink?: string;
+  buttons?: HeroSlideButton[];
+  contentPosition?: HeroHorizontalPosition;
+  buttonsPosition?: HeroHorizontalPosition;
+  verticalPosition?: HeroVerticalPosition;
+  buttonOffsetY?: number;
+  buttonOffsetX?: number;
 }
 
 export interface ProductCategory {
@@ -132,6 +150,7 @@ export interface ThemeConfig {
   homeSectionsOrder: HomeSectionKey[];
   hiddenHomeSections: HomeSectionKey[];
   customCss: string;
+  headingFontFamily?: string;
 }
 
 export interface CompanyInfo {
@@ -295,6 +314,7 @@ export const DEFAULT_THEME: ThemeConfig = {
   homeSectionsOrder: ['hero', 'about', 'categories', 'products', 'marketplaces'],
   hiddenHomeSections: [],
   customCss: '',
+  headingFontFamily: 'LIFTA SWASH V3',
 };
 
 export const HERO_SLIDES: HeroSlide[] = [
@@ -307,8 +327,38 @@ export const HERO_SLIDES: HeroSlide[] = [
       ur: 'معیار جس پر آپ بھروسہ کر سکتے ہیں',
       hi: 'गुणवत्ता जिस पर आप भरोसा कर सकते हैं',
     },
+    showTitle: true,
     primaryBtnLink: '/all-products',
     secondaryBtnLink: '/products-categories',
+    contentPosition: 'right',
+    buttonsPosition: 'right',
+    verticalPosition: 'center',
+    buttonOffsetY: 0,
+    buttonOffsetX: 0,
+    buttons: [
+      {
+        id: 'btn-1-1',
+        label: {
+          en: 'Products',
+          ar: 'المنتجات',
+          ur: 'مصنوعات',
+          hi: 'उत्पाद',
+        },
+        link: '/all-products',
+        style: 'primary',
+      },
+      {
+        id: 'btn-1-2',
+        label: {
+          en: 'Products Categories',
+          ar: 'أقسام المنتجات',
+          ur: 'مصنوعات کی اقسام',
+          hi: 'उत्पाद श्रेणियाँ',
+        },
+        link: '/products-categories',
+        style: 'secondary',
+      },
+    ],
   },
   {
     id: 'slide-2',
@@ -319,8 +369,38 @@ export const HERO_SLIDES: HeroSlide[] = [
       ur: 'معیار کی فراہمی، اعتماد کی تعمیر',
       hi: 'गुणवत्ता प्रदान करना, विश्वास बनाना',
     },
+    showTitle: true,
     primaryBtnLink: '/all-products',
     secondaryBtnLink: '/products-categories',
+    contentPosition: 'right',
+    buttonsPosition: 'right',
+    verticalPosition: 'center',
+    buttonOffsetY: 0,
+    buttonOffsetX: 0,
+    buttons: [
+      {
+        id: 'btn-2-1',
+        label: {
+          en: 'Products',
+          ar: 'المنتجات',
+          ur: 'مصنوعات',
+          hi: 'उत्पाद',
+        },
+        link: '/all-products',
+        style: 'primary',
+      },
+      {
+        id: 'btn-2-2',
+        label: {
+          en: 'Products Categories',
+          ar: 'أقسام المنتجات',
+          ur: 'مصنوعات کی اقسام',
+          hi: 'उत्पाद श्रेणियाँ',
+        },
+        link: '/products-categories',
+        style: 'secondary',
+      },
+    ],
   },
 ];
 

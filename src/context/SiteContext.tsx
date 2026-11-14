@@ -29,6 +29,7 @@ import {
 const STORAGE_KEY = 'naseem_cms_state_v1';
 const ADMIN_SESSION_KEY = 'naseem_admin_auth_session_v1';
 const STAFF_EMAIL_SESSION_KEY = 'naseem_staff_email_session_v1';
+const VISITOR_EMAIL_SESSION_KEY = 'naseem_visitor_email_session_v1';
 const LANGUAGE_STORAGE_KEY = 'naseem_site_lang_v1';
 const SITE_CONTENT_COLLECTION = 'site_content';
 const SITE_CONTENT_DOC_ID = 'main';
@@ -48,6 +49,8 @@ interface SiteContextValue {
   setLanguage: (lang: LanguageCode) => void;
   isAdminAuthenticated: boolean;
   currentStaffMember: StaffMember | null;
+  signedInVisitorEmail: string | null;
+  loginVisitorEmail: (email: string) => void;
   hasPermission: (perm: StaffPermissionKey) => boolean;
   visitorPreviewMode: boolean;
   setVisitorPreviewMode: (val: boolean) => void;
@@ -57,14 +60,24 @@ interface SiteContextValue {
   cloudAdminUser: User | null;
   cloudSyncStatus: CloudSyncStatus;
   cloudSyncError: string;
-  signInWithGoogleAdmin: () => Promise<{ ok: boolean; error?: string }>;
+  signInWithGoogleAdmin: (
+    forceSelectAccount?: boolean
+  ) => Promise<{ ok: boolean; isVisitor?: boolean; email?: string; error?: string }>;
   syncNowToCloud: (overrideState?: SiteState) => Promise<boolean>;
 }
 
 const SiteContext = createContext<SiteContextValue | undefined>(undefined);
 
 function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteState {
-  const merged: SiteState = { ...defaults, ...raw };
+  const merged: SiteState = {
+    ...defaults,
+    ...raw,
+    theme: {
+      ...defaults.theme,
+      ...(raw.theme || {}),
+      headingFontFamily: raw.theme?.headingFontFamily || 'LIFTA SWASH V3',
+    },
+  };
   if (Array.isArray(merged.categories)) {
     merged.categories = merged.categories.map((cat, idx) => {
       if (!cat.slug || cat.slug === 'n-a' || /^category-\d+$/.test(cat.slug)) {
@@ -82,6 +95,58 @@ function normalizeSiteState(raw: Partial<SiteState>, defaults: SiteState): SiteS
       ...prod,
       categorySlugs: Array.isArray(prod.categorySlugs) ? prod.categorySlugs : [],
     }));
+  }
+  if (Array.isArray(merged.heroSlides)) {
+    merged.heroSlides = merged.heroSlides.map((slide, sIdx) => {
+      if (Array.isArray(slide.buttons)) {
+        return {
+          ...slide,
+          showTitle: slide.showTitle !== false,
+          contentPosition: slide.contentPosition || 'right',
+          buttonsPosition: slide.buttonsPosition || slide.contentPosition || 'right',
+          verticalPosition: slide.verticalPosition || 'center',
+          buttonOffsetY: typeof slide.buttonOffsetY === 'number' ? slide.buttonOffsetY : 0,
+          buttonOffsetX: typeof slide.buttonOffsetX === 'number' ? slide.buttonOffsetX : 0,
+        };
+      }
+      const fallbackButtons = [];
+      if (slide.primaryBtnLink !== '') {
+        fallbackButtons.push({
+          id: `btn-${sIdx}-1`,
+          label: slide.primaryBtnText || {
+            en: 'Products',
+            ar: 'المنتجات',
+            ur: 'مصنوعات',
+            hi: 'उत्पाद',
+          },
+          link: slide.primaryBtnLink || '/all-products',
+          style: 'primary' as const,
+        });
+      }
+      if (slide.secondaryBtnLink !== '') {
+        fallbackButtons.push({
+          id: `btn-${sIdx}-2`,
+          label: slide.secondaryBtnText || {
+            en: 'Products Categories',
+            ar: 'أقسام المنتجات',
+            ur: 'مصنوعات کی اقسام',
+            hi: 'उत्पाद श्रेणियाँ',
+          },
+          link: slide.secondaryBtnLink || '/products-categories',
+          style: 'secondary' as const,
+        });
+      }
+      return {
+        ...slide,
+        showTitle: slide.showTitle !== false,
+        contentPosition: slide.contentPosition || 'right',
+        buttonsPosition: slide.buttonsPosition || slide.contentPosition || 'right',
+        verticalPosition: slide.verticalPosition || 'center',
+        buttonOffsetY: typeof slide.buttonOffsetY === 'number' ? slide.buttonOffsetY : 0,
+        buttonOffsetX: typeof slide.buttonOffsetX === 'number' ? slide.buttonOffsetX : 0,
+        buttons: fallbackButtons,
+      };
+    });
   }
   if (!Array.isArray(merged.staffMembers) || merged.staffMembers.length === 0) {
     merged.staffMembers = DEFAULT_STAFF_MEMBERS;
@@ -190,6 +255,14 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
+  const [signedInVisitorEmail, setSignedInVisitorEmail] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(VISITOR_EMAIL_SESSION_KEY) || null;
+    } catch {
+      return null;
+    }
+  });
+
   const [visitorPreviewMode, setVisitorPreviewMode] = useState<boolean>(false);
   const [cloudAdminUser, setCloudAdminUser] = useState<User | null>(null);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>('connecting');
@@ -200,6 +273,24 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isApplyingRemoteRef = useRef<boolean>(false);
   const latestStateRef = useRef<SiteState>(siteState);
   latestStateRef.current = siteState;
+
+  // Automatically upgrade a signed-in visitor email to Admin/Staff if their email is added to staffMembers
+  useEffect(() => {
+    if (signedInVisitorEmail && !isAdminAuthenticated) {
+      const matched = findStaffByEmail(signedInVisitorEmail, siteState.staffMembers);
+      const isOwner = signedInVisitorEmail.trim().toLowerCase() === 'yr.play.com@gmail.com';
+      if (isOwner || (matched && matched.active)) {
+        setLoggedInStaffEmail(signedInVisitorEmail.trim().toLowerCase());
+        setIsAdminAuthenticated(true);
+        try {
+          localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+          localStorage.setItem(STAFF_EMAIL_SESSION_KEY, signedInVisitorEmail.trim().toLowerCase());
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, [signedInVisitorEmail, isAdminAuthenticated, siteState.staffMembers]);
 
   // Derive active staff profile from siteState.staffMembers
   const currentStaffMember: StaffMember | null = React.useMemo(() => {
@@ -451,9 +542,14 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [setSiteState, currentStaffMember]
   );
 
-  const signInWithGoogleAdmin = async (): Promise<{ ok: boolean; error?: string }> => {
+  const signInWithGoogleAdmin = async (
+    forceSelectAccount = true
+  ): Promise<{ ok: boolean; isVisitor?: boolean; email?: string; error?: string }> => {
     try {
       setCloudSyncError('');
+      if (forceSelectAccount) {
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+      }
       const cred = await signInWithPopup(auth, googleProvider);
       const user = cred.user;
       if (user && user.email) {
@@ -463,22 +559,32 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!isOwner && (!matched || !matched.active)) {
           await signOut(auth);
-          const msg = `البريد الإلكتروني (${cleanEmail}) غير مسجل ضمن قائمة الموظفين أو الأدمنز المعتمدين. يجب أن يقوم المدير العام بإضافة إيميلك أولاً من قسم (الموظفون والصلاحيات).`;
-          setCloudSyncError(msg);
-          return { ok: false, error: msg };
+          setIsAdminAuthenticated(false);
+          setSignedInVisitorEmail(cleanEmail);
+          try {
+            localStorage.removeItem(ADMIN_SESSION_KEY);
+            localStorage.setItem(VISITOR_EMAIL_SESSION_KEY, cleanEmail);
+          } catch {
+            // ignore
+          }
+          const msg = `تم تسجيل دخولك بحساب (${cleanEmail}) كزائر. (ملاحظة: هذا البريد غير مضاف في قائمة الأدمنز حالياً، لذلك لن يظهر له زر لوحة التحكم).`;
+          return { ok: false, isVisitor: true, email: cleanEmail, error: msg };
         }
 
         setCloudAdminUser(user);
         setLoggedInStaffEmail(cleanEmail);
+        setSignedInVisitorEmail(cleanEmail);
         setIsAdminAuthenticated(true);
+        setVisitorPreviewMode(false);
         try {
           localStorage.setItem(ADMIN_SESSION_KEY, 'true');
           localStorage.setItem(STAFF_EMAIL_SESSION_KEY, cleanEmail);
+          localStorage.setItem(VISITOR_EMAIL_SESSION_KEY, cleanEmail);
         } catch {
           // ignore
         }
         await pushStateToFirestore(latestStateRef.current);
-        return { ok: true };
+        return { ok: true, email: cleanEmail };
       }
       return { ok: false, error: 'لم يتم استلام بيانات البريد الإلكتروني من Google.' };
     } catch (err) {
@@ -491,19 +597,53 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncNowToCloud = async (overrideState?: SiteState): Promise<boolean> => {
     const targetState = overrideState || latestStateRef.current;
     if (!auth.currentUser) {
-      const res = await signInWithGoogleAdmin();
+      const res = await signInWithGoogleAdmin(true);
       if (!res.ok) return false;
     }
     return pushStateToFirestore(targetState);
   };
 
+  const loginVisitorEmail = (email: string) => {
+    const clean = email.trim().toLowerCase();
+    if (!clean) return;
+    const matched = findStaffByEmail(clean, latestStateRef.current.staffMembers);
+    const isOwner = clean === 'yr.play.com@gmail.com';
+    setSignedInVisitorEmail(clean);
+    try {
+      localStorage.setItem(VISITOR_EMAIL_SESSION_KEY, clean);
+    } catch {
+      // ignore
+    }
+    if (isOwner || (matched && matched.active)) {
+      setLoggedInStaffEmail(clean);
+      setIsAdminAuthenticated(true);
+      setVisitorPreviewMode(false);
+      try {
+        localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+        localStorage.setItem(STAFF_EMAIL_SESSION_KEY, clean);
+      } catch {
+        // ignore
+      }
+    } else {
+      setIsAdminAuthenticated(false);
+      try {
+        localStorage.removeItem(ADMIN_SESSION_KEY);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   const loginAdmin = (staff?: StaffMember) => {
     const email = staff?.email?.trim().toLowerCase() || 'yr.play.com@gmail.com';
     setLoggedInStaffEmail(email);
+    setSignedInVisitorEmail(email);
     setIsAdminAuthenticated(true);
+    setVisitorPreviewMode(false);
     try {
       localStorage.setItem(ADMIN_SESSION_KEY, 'true');
       localStorage.setItem(STAFF_EMAIL_SESSION_KEY, email);
+      localStorage.setItem(VISITOR_EMAIL_SESSION_KEY, email);
     } catch {
       // ignore
     }
@@ -511,10 +651,12 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logoutAdmin = () => {
     setIsAdminAuthenticated(false);
+    setSignedInVisitorEmail(null);
     setVisitorPreviewMode(false);
     try {
       localStorage.removeItem(ADMIN_SESSION_KEY);
       localStorage.removeItem(STAFF_EMAIL_SESSION_KEY);
+      localStorage.removeItem(VISITOR_EMAIL_SESSION_KEY);
     } catch {
       // ignore
     }
@@ -600,6 +742,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLanguage,
         isAdminAuthenticated: Boolean(isAdminAuthenticated && currentStaffMember),
         currentStaffMember,
+        signedInVisitorEmail,
+        loginVisitorEmail,
         hasPermission,
         visitorPreviewMode,
         setVisitorPreviewMode,
@@ -613,15 +757,20 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         syncNowToCloud,
       }}
     >
-      {/* Dynamic Style Tag for Theme Colors, Backgrounds & Custom CSS */}
+      {/* Dynamic Style Tag for Theme Colors, Heading Font, Backgrounds & Custom CSS */}
       <style>{`
         :root {
           --primary: ${siteState.theme.primaryColor};
           --secondary: ${siteState.theme.secondaryColor};
           --light: ${siteState.theme.lightBgColor};
           --dark: ${siteState.theme.darkFooterColor};
+          --heading-font: "${siteState.theme.headingFontFamily || 'LIFTA SWASH V3'}", "Lifta Swash V3", "Lora", "Cairo", serif;
         }
-        h1, .h1, h2, .h2, h3, .h3, h4, .h4, h5, .h5, h6, .h6 {
+        h1, .h1, h2, .h2 {
+          font-family: var(--heading-font);
+          color: ${siteState.theme.secondaryColor};
+        }
+        h3, .h3, h4, .h4, h5, .h5, h6, .h6 {
           color: ${siteState.theme.secondaryColor};
         }
         .naseem-p {

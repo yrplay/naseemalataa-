@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import {
   CustomPage,
+  HeroButtonStyle,
+  HeroHorizontalPosition,
   HeroSlide,
+  HeroSlideButton,
+  HeroVerticalPosition,
   HomeSectionKey,
   LanguageCode,
   LegalSection,
@@ -28,6 +32,7 @@ import { ImageInputField } from '../components/admin/ImageInputField';
 import { AdminLoginGate } from '../components/admin/AdminLoginGate';
 import { AdminSecurityAndDeployModal } from '../components/admin/AdminSecurityAndDeployModal';
 import { StaffManagementPanel } from '../components/admin/StaffManagementPanel';
+import { resolveSlideButtons } from '../components/HeroCarousel';
 
 export type AdminTabKey = StaffPermissionKey;
 
@@ -406,8 +411,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
   // Handlers for Hero Slides
   const handleAddHeroSlide = () => {
+    const newId = `slide-${Date.now()}`;
     const newSlide: HeroSlide = {
-      id: `slide-${Date.now()}`,
+      id: newId,
       image: '/front_css/img/carousel-1.jpg',
       title: {
         en: 'New Promotional Slide',
@@ -415,8 +421,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         ur: 'نئی پروموشنل سلائیڈ',
         hi: 'नई प्रचार स्लाइड',
       },
+      showTitle: true,
       primaryBtnLink: '/all-products',
       secondaryBtnLink: '/products-categories',
+      contentPosition: 'right',
+      buttonsPosition: 'right',
+      verticalPosition: 'center',
+      buttonOffsetX: 0,
+      buttonOffsetY: 0,
+      buttons: [
+        {
+          id: `${newId}-btn-1`,
+          label: {
+            en: 'Products',
+            ar: 'المنتجات',
+            ur: 'مصنوعات',
+            hi: 'उत्पाद',
+          },
+          link: '/all-products',
+          style: 'primary',
+        },
+        {
+          id: `${newId}-btn-2`,
+          label: {
+            en: 'Products Categories',
+            ar: 'أقسام المنتجات',
+            ur: 'مصنوعات کی اقسام',
+            hi: 'उत्पाद श्रेणियाँ',
+          },
+          link: '/products-categories',
+          style: 'secondary',
+        },
+      ],
     };
     updateSiteState((prev) => ({
       ...prev,
@@ -1257,6 +1293,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                   </div>
                 </div>
 
+                <div className="p-4 border border-amber-200 rounded-lg bg-amber-50/40 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-900">
+                        خط العناوين الرئيسية للموقع (Heading Font Family)
+                      </label>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        تم تضمين خط <strong>LIFTA SWASH V3</strong> الأصلي محلياً وتفعيله على جميع العناوين الرئيسية (`h1`, `h2`).
+                      </p>
+                    </div>
+                    <select
+                      value={siteState.theme.headingFontFamily || 'LIFTA SWASH V3'}
+                      onChange={(e) =>
+                        updateSiteState((prev) => ({
+                          ...prev,
+                          theme: {
+                            ...prev.theme,
+                            headingFontFamily: e.target.value,
+                          },
+                        }))
+                      }
+                      className="px-3.5 py-2 text-sm font-semibold border border-slate-300 rounded bg-white text-slate-900 cursor-pointer"
+                    >
+                      <option value="LIFTA SWASH V3">LIFTA SWASH V3 (الخط الزخرفي للعناوين - مفعل)</option>
+                      <option value="Cairo">Cairo (خط كايرو العصري)</option>
+                      <option value="Lora">Lora + Cairo (الخط الكلاسيكي)</option>
+                    </select>
+                  </div>
+
+                  <div className="p-4 bg-white rounded border border-slate-200 text-center">
+                    <div className="text-[11px] text-slate-400 mb-1">
+                      معاينة حية لخط العناوين الرئيسية ({siteState.theme.headingFontFamily || 'LIFTA SWASH V3'}):
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: `"${siteState.theme.headingFontFamily || 'LIFTA SWASH V3'}", "Lora", "Cairo", serif`,
+                        color: siteState.theme.secondaryColor,
+                      }}
+                      className="text-2xl sm:text-4xl font-bold leading-relaxed"
+                    >
+                      شركة نسيم العطاء التجارية — جودة يمكنك الوثوق بها
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1453,13 +1534,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
           {/* 4. HERO SLIDES TAB */}
           {activeTab === 'hero' && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between bg-white p-5 rounded border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded border border-slate-200">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">
-                    إدارة شرائح السلايدر الرئيسي (Hero Carousel)
+                    إدارة شرائح السلايدر الرئيسي وأزرارها ومواقعها (Hero Carousel)
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    تحكم في صور السلايدر، العناوين بجميع اللغات، وروابط الأزرار.
+                    تحكم كامل في صور السلايدر، العناوين، إضافة أو حذف أي عدد من الأزرار، وتحديد موقع الأزرار والعنوان (يمين / وسط / يسار / أعلى / أسفل + إزاحة بالبكسل).
                   </p>
                 </div>
                 <button
@@ -1472,320 +1553,591 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                 </button>
               </div>
 
-              <div className="space-y-4">
-                {siteState.heroSlides.map((slide, idx) => (
-                  <div
-                    key={slide.id}
-                    className="bg-white p-6 rounded border border-slate-200 space-y-4"
-                  >
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <span className="text-sm font-bold text-slate-800">
-                        الشريحة #{idx + 1}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={() =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: moveArrayItem(prev.heroSlides, idx, 'up'),
-                            }))
-                          }
-                          className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
-                        >
-                          <i className="fa fa-arrow-up"></i>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={idx === siteState.heroSlides.length - 1}
-                          onClick={() =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: moveArrayItem(prev.heroSlides, idx, 'down'),
-                            }))
-                          }
-                          className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
-                        >
-                          <i className="fa fa-arrow-down"></i>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.filter((s) => s.id !== slide.id),
-                            }))
-                          }
-                          className="px-3 py-1 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 cursor-pointer"
-                        >
-                          حذف الشريحة
-                        </button>
+              <div className="space-y-6">
+                {siteState.heroSlides.map((slide, idx) => {
+                  const slideButtons = resolveSlideButtons(
+                    slide,
+                    'المنتجات',
+                    'أقسام المنتجات'
+                  );
+                  const contentPos = slide.contentPosition || 'right';
+                  const buttonsPos = slide.buttonsPosition || contentPos || 'right';
+                  const verticalPos = slide.verticalPosition || 'center';
+                  const showTitle = slide.showTitle !== false;
+                  const offsetX = typeof slide.buttonOffsetX === 'number' ? slide.buttonOffsetX : 0;
+                  const offsetY = typeof slide.buttonOffsetY === 'number' ? slide.buttonOffsetY : 0;
+
+                  const updateThisSlide = (updater: (s: HeroSlide) => HeroSlide) => {
+                    updateSiteState((prev) => ({
+                      ...prev,
+                      heroSlides: prev.heroSlides.map((s) => (s.id === slide.id ? updater(s) : s)),
+                    }));
+                  };
+
+                  const handleAddButtonToSlide = () => {
+                    const newBtn: HeroSlideButton = {
+                      id: `btn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                      label: {
+                        ar: 'زر جديد',
+                        en: 'Explore Now',
+                        ur: 'مزید دیکھیں',
+                        hi: 'अभी देखें',
+                      },
+                      link: '/all-products',
+                      style: slideButtons.length % 2 === 0 ? 'primary' : 'secondary',
+                    };
+                    updateThisSlide((s) => ({
+                      ...s,
+                      buttons: [...slideButtons, newBtn],
+                    }));
+                    notify(`تمت إضافة زر جديد إلى الشريحة #${idx + 1}.`);
+                  };
+
+                  const handleDeleteButtonFromSlide = (btnId: string) => {
+                    const nextBtns = slideButtons.filter((b) => b.id !== btnId);
+                    updateThisSlide((s) => ({
+                      ...s,
+                      buttons: nextBtns,
+                      primaryBtnLink: nextBtns[0]?.link || '',
+                      secondaryBtnLink: nextBtns[1]?.link || '',
+                    }));
+                    notify(`تم حذف الزر من الشريحة #${idx + 1}.`);
+                  };
+
+                  const handleClearAllButtons = () => {
+                    updateThisSlide((s) => ({
+                      ...s,
+                      buttons: [],
+                      primaryBtnLink: '',
+                      secondaryBtnLink: '',
+                    }));
+                    notify(`تم حذف جميع الأزرار من الشريحة #${idx + 1} (شريحة بدون أزرار).`);
+                  };
+
+                  const handleUpdateButton = (
+                    btnId: string,
+                    patch: Partial<HeroSlideButton>
+                  ) => {
+                    const nextBtns = slideButtons.map((b) =>
+                      b.id === btnId ? { ...b, ...patch } : b
+                    );
+                    updateThisSlide((s) => ({
+                      ...s,
+                      buttons: nextBtns,
+                    }));
+                  };
+
+                  const handleMoveButton = (bIdx: number, dir: 'up' | 'down') => {
+                    const nextBtns = moveArrayItem(slideButtons, bIdx, dir);
+                    updateThisSlide((s) => ({
+                      ...s,
+                      buttons: nextBtns,
+                    }));
+                  };
+
+                  return (
+                    <div
+                      key={slide.id}
+                      className="bg-white p-6 rounded-xl border border-slate-200 space-y-6 shadow-xs"
+                    >
+                      {/* Slide Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-bold text-slate-900 bg-slate-100 px-3 py-1 rounded">
+                            الشريحة #{idx + 1}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            عدد الأزرار الحالية: <strong>{slideButtons.length}</strong>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() =>
+                              updateSiteState((prev) => ({
+                                ...prev,
+                                heroSlides: moveArrayItem(prev.heroSlides, idx, 'up'),
+                              }))
+                            }
+                            className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                            title="تحريك الشريحة لأعلى"
+                          >
+                            <i className="fa fa-arrow-up"></i>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === siteState.heroSlides.length - 1}
+                            onClick={() =>
+                              updateSiteState((prev) => ({
+                                ...prev,
+                                heroSlides: moveArrayItem(prev.heroSlides, idx, 'down'),
+                              }))
+                            }
+                            className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                            title="تحريك الشريحة لأسفل"
+                          >
+                            <i className="fa fa-arrow-down"></i>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateSiteState((prev) => ({
+                                ...prev,
+                                heroSlides: prev.heroSlides.filter((s) => s.id !== slide.id),
+                              }))
+                            }
+                            className="px-3 py-1 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 cursor-pointer"
+                          >
+                            حذف الشريحة
+                          </button>
+                        </div>
                       </div>
+
+                      {/* 1. Slide Title & Visibility */}
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-bold text-slate-800">
+                            1. عنوان الشريحة النصي وإظهاره
+                          </h3>
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-slate-50 px-3 py-1.5 rounded border border-slate-200">
+                            <input
+                              type="checkbox"
+                              checked={showTitle}
+                              onChange={(e) =>
+                                updateThisSlide((s) => ({ ...s, showTitle: e.target.checked }))
+                              }
+                              className="w-4 h-4 accent-[#23838B]"
+                            />
+                            <span>إظهار العنوان النصي فوق الشريحة</span>
+                          </label>
+                        </div>
+
+                        {showTitle && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                العنوان الرئيسي (بالعربية)
+                              </label>
+                              <input
+                                type="text"
+                                value={slide.title.ar}
+                                onChange={(e) =>
+                                  updateThisSlide((s) => ({
+                                    ...s,
+                                    title: { ...s.title, ar: e.target.value },
+                                  }))
+                                }
+                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                العنوان الرئيسي (بالإنجليزية)
+                              </label>
+                              <input
+                                type="text"
+                                dir="ltr"
+                                value={slide.title.en}
+                                onChange={(e) =>
+                                  updateThisSlide((s) => ({
+                                    ...s,
+                                    title: { ...s.title, en: e.target.value },
+                                  }))
+                                }
+                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. Position Controller: Where buttons & content sit on the slide */}
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">
+                              2. تحديد موقع الأزرار والعنوان على الشريحة
+                            </h3>
+                            <p className="text-xs text-slate-500">
+                              اختر مكان تموضع الأزرار أفقياً وعمودياً، أو حرّكها بدقة بالبكسل لأي مكان يناسب تصميم صورة البنر.
+                            </p>
+                          </div>
+                          {(offsetX !== 0 || offsetY !== 0) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateThisSlide((s) => ({
+                                  ...s,
+                                  buttonOffsetX: 0,
+                                  buttonOffsetY: 0,
+                                }))
+                              }
+                              className="text-xs font-semibold text-[#23838B] hover:underline cursor-pointer"
+                            >
+                              إعادة ضبط الإزاحة (0px)
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Buttons Horizontal Position */}
+                          <div className="bg-white p-3 rounded-lg border border-slate-200">
+                            <label className="block text-xs font-bold text-slate-700 mb-2">
+                              موقع الأزرار الأفقي (يمين / وسط / يسار)
+                            </label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {(
+                                [
+                                  { val: 'right', label: 'يمين' },
+                                  { val: 'center', label: 'وسط' },
+                                  { val: 'left', label: 'يسار' },
+                                ] as Array<{ val: HeroHorizontalPosition; label: string }>
+                              ).map((opt) => (
+                                <button
+                                  key={opt.val}
+                                  type="button"
+                                  onClick={() =>
+                                    updateThisSlide((s) => ({
+                                      ...s,
+                                      buttonsPosition: opt.val,
+                                    }))
+                                  }
+                                  className={`py-1.5 text-xs font-bold rounded border transition cursor-pointer ${
+                                    buttonsPos === opt.val
+                                      ? 'bg-[#23838B] text-white border-[#23838B]'
+                                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Title Horizontal Position */}
+                          <div className="bg-white p-3 rounded-lg border border-slate-200">
+                            <label className="block text-xs font-bold text-slate-700 mb-2">
+                              موقع العنوان الأفقي (يمين / وسط / يسار)
+                            </label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {(
+                                [
+                                  { val: 'right', label: 'يمين' },
+                                  { val: 'center', label: 'وسط' },
+                                  { val: 'left', label: 'يسار' },
+                                ] as Array<{ val: HeroHorizontalPosition; label: string }>
+                              ).map((opt) => (
+                                <button
+                                  key={opt.val}
+                                  type="button"
+                                  onClick={() =>
+                                    updateThisSlide((s) => ({
+                                      ...s,
+                                      contentPosition: opt.val,
+                                    }))
+                                  }
+                                  className={`py-1.5 text-xs font-bold rounded border transition cursor-pointer ${
+                                    contentPos === opt.val
+                                      ? 'bg-[#BE9C6A] text-white border-[#BE9C6A]'
+                                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Vertical Position */}
+                          <div className="bg-white p-3 rounded-lg border border-slate-200">
+                            <label className="block text-xs font-bold text-slate-700 mb-2">
+                              الموقع العمودي على الشريحة (أعلى / منتصف / أسفل)
+                            </label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {(
+                                [
+                                  { val: 'top', label: 'أعلى' },
+                                  { val: 'center', label: 'منتصف' },
+                                  { val: 'bottom', label: 'أسفل' },
+                                ] as Array<{ val: HeroVerticalPosition; label: string }>
+                              ).map((opt) => (
+                                <button
+                                  key={opt.val}
+                                  type="button"
+                                  onClick={() =>
+                                    updateThisSlide((s) => ({
+                                      ...s,
+                                      verticalPosition: opt.val,
+                                    }))
+                                  }
+                                  className={`py-1.5 text-xs font-bold rounded border transition cursor-pointer ${
+                                    verticalPos === opt.val
+                                      ? 'bg-slate-900 text-white border-slate-900'
+                                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Fine-tune Pixel Offset Sliders */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                          <div className="bg-white p-3 rounded-lg border border-slate-200">
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+                              <span>إزاحة أفقية للأزرار (يمين / يسار بالبكسل)</span>
+                              <span dir="ltr" className="font-mono text-[#23838B]">
+                                {offsetX}px
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={-150}
+                              max={150}
+                              step={5}
+                              value={offsetX}
+                              onChange={(e) =>
+                                updateThisSlide((s) => ({
+                                  ...s,
+                                  buttonOffsetX: Number(e.target.value),
+                                }))
+                              }
+                              className="w-full accent-[#23838B] cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="bg-white p-3 rounded-lg border border-slate-200">
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+                              <span>إزاحة عمودية للأزرار (أعلى / أسفل بالبكسل)</span>
+                              <span dir="ltr" className="font-mono text-[#23838B]">
+                                {offsetY}px
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={-150}
+                              max={150}
+                              step={5}
+                              value={offsetY}
+                              onChange={(e) =>
+                                updateThisSlide((s) => ({
+                                  ...s,
+                                  buttonOffsetY: Number(e.target.value),
+                                }))
+                              }
+                              className="w-full accent-[#23838B] cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Dynamic Buttons Manager (Add / Edit / Reorder / Delete) */}
+                      <div className="p-4 rounded-xl bg-emerald-50/40 border border-emerald-200/80 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">
+                              3. أزرار الشريحة ({slideButtons.length} زر) — إضافة أو تعديل أو حذف الأزرار
+                            </h3>
+                            <p className="text-xs text-slate-600">
+                              أضف أي عدد من الأزرار لهذه الشريحة، أو احذفها بالكامل إذا أردت شريحة بدون أزرار.
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleAddButtonToSlide}
+                              className="px-3.5 py-2 text-xs font-bold bg-[#23838B] hover:bg-[#1a666d] text-white rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            >
+                              <i className="fa fa-plus"></i>
+                              <span>إضافة زر جديد للشريحة</span>
+                            </button>
+                            {slideButtons.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleClearAllButtons}
+                                className="px-3 py-2 text-xs font-bold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <i className="fa fa-trash-alt"></i>
+                                <span>حذف كل الأزرار (بدون أزرار)</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {slideButtons.length === 0 ? (
+                          <div className="bg-white rounded-lg p-6 text-center border border-dashed border-slate-300 space-y-2">
+                            <div className="text-xs font-bold text-slate-600">
+                              هذه الشريحة لا تحتوي على أي أزرار حالياً (تظهر كصورة وعنوان فقط).
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleAddButtonToSlide}
+                              className="px-4 py-1.5 text-xs font-bold bg-[#23838B] text-white rounded-lg cursor-pointer"
+                            >
+                              + إضافة زر الآن
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {slideButtons.map((btn, bIdx) => (
+                              <div
+                                key={btn.id}
+                                className="bg-white p-4 rounded-xl border border-slate-200 space-y-3"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                                  <span className="text-xs font-bold text-slate-800">
+                                    الزر #{bIdx + 1}: {btn.label.ar || btn.label.en}
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      disabled={bIdx === 0}
+                                      onClick={() => handleMoveButton(bIdx, 'up')}
+                                      className="px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                                      title="تقديم الزر"
+                                    >
+                                      <i className="fa fa-arrow-right"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={bIdx === slideButtons.length - 1}
+                                      onClick={() => handleMoveButton(bIdx, 'down')}
+                                      className="px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                                      title="تأخير الزر"
+                                    >
+                                      <i className="fa fa-arrow-left"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteButtonFromSlide(btn.id)}
+                                      className="px-2.5 py-1 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded cursor-pointer flex items-center gap-1"
+                                    >
+                                      <i className="fa fa-trash"></i>
+                                      <span>حذف الزر</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                      نص الزر (بالعربية)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={btn.label.ar}
+                                      onChange={(e) =>
+                                        handleUpdateButton(btn.id, {
+                                          label: { ...btn.label, ar: e.target.value },
+                                        })
+                                      }
+                                      placeholder="مثال: المنتجات"
+                                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                      نص الزر (بالإنجليزية)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      dir="ltr"
+                                      value={btn.label.en}
+                                      onChange={(e) =>
+                                        handleUpdateButton(btn.id, {
+                                          label: { ...btn.label, en: e.target.value },
+                                        })
+                                      }
+                                      placeholder="Example: Products"
+                                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                      لون وتصميم الزر
+                                    </label>
+                                    <select
+                                      value={btn.style}
+                                      onChange={(e) =>
+                                        handleUpdateButton(btn.id, {
+                                          style: e.target.value as HeroButtonStyle,
+                                        })
+                                      }
+                                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white cursor-pointer"
+                                    >
+                                      <option value="primary">أخضر زمردي (#23838B)</option>
+                                      <option value="secondary">ذهبي (#BE9C6A)</option>
+                                      <option value="white">أبيض ناصع</option>
+                                      <option value="outline">إطار شفاف (Outline)</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                      رابط الزر (أو اختر صفحة جاهزة)
+                                    </label>
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="text"
+                                        dir="ltr"
+                                        value={btn.link}
+                                        onChange={(e) =>
+                                          handleUpdateButton(btn.id, { link: e.target.value })
+                                        }
+                                        placeholder="/all-products"
+                                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+                                      />
+                                      <select
+                                        aria-label="اختيار رابط سريع"
+                                        value=""
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            handleUpdateButton(btn.id, { link: e.target.value });
+                                          }
+                                        }}
+                                        className="px-2 py-1.5 text-xs border border-slate-300 rounded bg-slate-50 cursor-pointer max-w-[95px]"
+                                      >
+                                        <option value="">اختر...</option>
+                                        <option value="/all-products">كل المنتجات</option>
+                                        <option value="/products-categories">أقسام المنتجات</option>
+                                        <option value="/market-places">قطاعات العمل</option>
+                                        <option value="/about-us">من نحن</option>
+                                        <option value="/contact-us">تواصل معنا</option>
+                                        {siteState.categories.map((cat) => (
+                                          <option key={cat.id} value={`/${cat.slug}`}>
+                                            قسم: {cat.titleAr}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <ImageInputField
+                        label="صورة خلفية الشريحة"
+                        value={slide.image}
+                        onChange={(url) =>
+                          updateThisSlide((s) => ({
+                            ...s,
+                            image: url,
+                          }))
+                        }
+                      />
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          العنوان الرئيسي (بالعربية)
-                        </label>
-                        <input
-                          type="text"
-                          value={slide.title.ar}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? { ...s, title: { ...s.title, ar: e.target.value } }
-                                  : s
-                              ),
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          العنوان الرئيسي (بالإنجليزية)
-                        </label>
-                        <input
-                          type="text"
-                          dir="ltr"
-                          value={slide.title.en}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? { ...s, title: { ...s.title, en: e.target.value } }
-                                  : s
-                              ),
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          العنوان الرئيسي (بالأردية - UR)
-                        </label>
-                        <input
-                          type="text"
-                          value={slide.title.ur}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? { ...s, title: { ...s.title, ur: e.target.value } }
-                                  : s
-                              ),
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          العنوان الرئيسي (بالهندية - HI)
-                        </label>
-                        <input
-                          type="text"
-                          dir="ltr"
-                          value={slide.title.hi}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? { ...s, title: { ...s.title, hi: e.target.value } }
-                                  : s
-                              ),
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Hero Buttons & Links */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          نص الزر الأول (عربي - اختياري)
-                        </label>
-                        <input
-                          type="text"
-                          value={slide.primaryBtnText?.ar || ''}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? {
-                                      ...s,
-                                      primaryBtnText: {
-                                        en: s.primaryBtnText?.en || 'Products',
-                                        ar: e.target.value,
-                                        ur: s.primaryBtnText?.ur || 'مصنوعات',
-                                        hi: s.primaryBtnText?.hi || 'उत्पाद',
-                                      },
-                                    }
-                                  : s
-                              ),
-                            }))
-                          }
-                          placeholder="الافتراضي: المنتجات"
-                          className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          نص الزر الأول (إنجليزي - اختياري)
-                        </label>
-                        <input
-                          type="text"
-                          dir="ltr"
-                          value={slide.primaryBtnText?.en || ''}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? {
-                                      ...s,
-                                      primaryBtnText: {
-                                        en: e.target.value,
-                                        ar: s.primaryBtnText?.ar || 'المنتجات',
-                                        ur: s.primaryBtnText?.ur || 'مصنوعات',
-                                        hi: s.primaryBtnText?.hi || 'उत्पाद',
-                                      },
-                                    }
-                                  : s
-                              ),
-                            }))
-                          }
-                          placeholder="Default: Products"
-                          className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          رابط الزر الأول (Link)
-                        </label>
-                        <input
-                          type="text"
-                          dir="ltr"
-                          value={slide.primaryBtnLink}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id ? { ...s, primaryBtnLink: e.target.value } : s
-                              ),
-                            }))
-                          }
-                          className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          نص الزر الثاني (عربي - اختياري)
-                        </label>
-                        <input
-                          type="text"
-                          value={slide.secondaryBtnText?.ar || ''}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? {
-                                      ...s,
-                                      secondaryBtnText: {
-                                        en: s.secondaryBtnText?.en || 'Categories',
-                                        ar: e.target.value,
-                                        ur: s.secondaryBtnText?.ur || 'زمرے',
-                                        hi: s.secondaryBtnText?.hi || 'श्रेणियाँ',
-                                      },
-                                    }
-                                  : s
-                              ),
-                            }))
-                          }
-                          placeholder="الافتراضي: الأقسام"
-                          className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          نص الزر الثاني (إنجليزي - اختياري)
-                        </label>
-                        <input
-                          type="text"
-                          dir="ltr"
-                          value={slide.secondaryBtnText?.en || ''}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id
-                                  ? {
-                                      ...s,
-                                      secondaryBtnText: {
-                                        en: e.target.value,
-                                        ar: s.secondaryBtnText?.ar || 'الأقسام',
-                                        ur: s.secondaryBtnText?.ur || 'زمرے',
-                                        hi: s.secondaryBtnText?.hi || 'श्रेणियाँ',
-                                      },
-                                    }
-                                  : s
-                              ),
-                            }))
-                          }
-                          placeholder="Default: Categories"
-                          className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          رابط الزر الثاني (Link)
-                        </label>
-                        <input
-                          type="text"
-                          dir="ltr"
-                          value={slide.secondaryBtnLink}
-                          onChange={(e) =>
-                            updateSiteState((prev) => ({
-                              ...prev,
-                              heroSlides: prev.heroSlides.map((s) =>
-                                s.id === slide.id ? { ...s, secondaryBtnLink: e.target.value } : s
-                              ),
-                            }))
-                          }
-                          className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
-                        />
-                      </div>
-                    </div>
-
-                    <ImageInputField
-                      label="صورة خلفية الشريحة"
-                      value={slide.image}
-                      onChange={(url) =>
-                        updateSiteState((prev) => ({
-                          ...prev,
-                          heroSlides: prev.heroSlides.map((s) =>
-                            s.id === slide.id ? { ...s, image: url } : s
-                          ),
-                        }))
-                      }
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

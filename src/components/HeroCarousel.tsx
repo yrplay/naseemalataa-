@@ -1,10 +1,119 @@
 import React, { useState, useEffect } from 'react';
-import { LanguageCode } from '../data/siteData';
+import {
+  HeroButtonStyle,
+  HeroHorizontalPosition,
+  HeroSlide,
+  HeroSlideButton,
+  HeroVerticalPosition,
+  LanguageCode,
+} from '../data/siteData';
 import { useSite } from '../context/SiteContext';
 
 interface HeroCarouselProps {
   language: LanguageCode;
   onNavigate: (path: string) => void;
+}
+
+export function resolveSlideButtons(
+  slide: HeroSlide,
+  defaultProductsLabel: string,
+  defaultCategoriesLabel: string
+): HeroSlideButton[] {
+  if (Array.isArray(slide.buttons)) {
+    return slide.buttons;
+  }
+  const fallback: HeroSlideButton[] = [];
+  if (slide.primaryBtnLink !== '') {
+    fallback.push({
+      id: `${slide.id}-btn-1`,
+      label: slide.primaryBtnText || {
+        en: 'Products',
+        ar: defaultProductsLabel,
+        ur: 'مصنوعات',
+        hi: 'उत्पाद',
+      },
+      link: slide.primaryBtnLink || '/all-products',
+      style: 'primary',
+    });
+  }
+  if (slide.secondaryBtnLink !== '') {
+    fallback.push({
+      id: `${slide.id}-btn-2`,
+      label: slide.secondaryBtnText || {
+        en: 'Products Categories',
+        ar: defaultCategoriesLabel,
+        ur: 'زمرے',
+        hi: 'श्रेणियाँ',
+      },
+      link: slide.secondaryBtnLink || '/products-categories',
+      style: 'secondary',
+    });
+  }
+  return fallback;
+}
+
+function getButtonStyleClasses(style: HeroButtonStyle): string {
+  switch (style) {
+    case 'primary':
+      return 'bg-[#23838B] hover:bg-[#1c6b72] text-white border border-transparent';
+    case 'secondary':
+      return 'bg-[#BE9C6A] hover:bg-[#ab8a59] text-white border border-transparent';
+    case 'white':
+      return 'bg-white hover:bg-slate-100 text-[#23838B] border border-slate-200 shadow-md';
+    case 'outline':
+      return 'bg-white/80 hover:bg-[#23838B] text-[#23838B] hover:text-white border-2 border-[#23838B] backdrop-blur-xs';
+    default:
+      return 'bg-[#23838B] hover:bg-[#1c6b72] text-white';
+  }
+}
+
+function getVerticalContainerClass(vPos: HeroVerticalPosition = 'center'): string {
+  switch (vPos) {
+    case 'top':
+      return 'items-start pt-28 md:pt-36';
+    case 'bottom':
+      return 'items-end pb-12 md:pb-20';
+    case 'center':
+    default:
+      return 'items-center';
+  }
+}
+
+function getHorizontalWrapperStyle(hPos: HeroHorizontalPosition = 'right'): {
+  rowJustify: string;
+  textAlign: string;
+} {
+  // Using physical direction classes so 'right', 'center', 'left' always match the user's visual choice regardless of page dir
+  switch (hPos) {
+    case 'center':
+      return {
+        rowJustify: 'justify-center',
+        textAlign: 'text-center',
+      };
+    case 'left':
+      return {
+        rowJustify: 'ltr:justify-start rtl:justify-end',
+        textAlign: 'ltr:text-left rtl:text-left',
+      };
+    case 'right':
+    default:
+      return {
+        rowJustify: 'ltr:justify-end rtl:justify-start',
+        textAlign: 'ltr:text-right rtl:text-right',
+      };
+  }
+}
+
+function getButtonsRowJustify(hPos: HeroHorizontalPosition = 'right'): string {
+  switch (hPos) {
+    case 'center':
+      return 'justify-center';
+    case 'left':
+      return 'ltr:justify-start rtl:justify-end';
+    case 'right':
+    default:
+      return 'ltr:justify-end rtl:justify-start';
+  }
 }
 
 export const HeroCarousel: React.FC<HeroCarouselProps> = ({ language, onNavigate }) => {
@@ -27,7 +136,6 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ language, onNavigate
   }
 
   const safeIndex = activeIndex % slides.length;
-  const currentSlide = slides[safeIndex];
 
   const handlePrev = () => {
     setActiveIndex((prev) => (prev - 1 + slides.length) % slides.length);
@@ -37,64 +145,96 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ language, onNavigate
     setActiveIndex((prev) => (prev + 1) % slides.length);
   };
 
-  const primaryLabel = currentSlide.primaryBtnText?.[language] || t.products;
-  const primaryLink = currentSlide.primaryBtnLink || '/all-products';
-  const secondaryLabel = currentSlide.secondaryBtnText?.[language] || t.productsCategories;
-  const secondaryLink = currentSlide.secondaryBtnLink || '/products-categories';
-
   return (
     <div className="relative w-full p-0 mb-12 overflow-hidden">
       <div className="relative min-h-[450px] md:min-h-[600px] lg:min-h-[760px] w-full">
-        {slides.map((slide, idx) => (
-          <div
-            key={slide.id}
-            className={`transition-opacity duration-700 ${
-              idx === safeIndex
-                ? 'opacity-100 relative z-10'
-                : 'opacity-0 absolute inset-0 pointer-events-none'
-            }`}
-          >
-            <img
-              src={slide.image}
-              alt={slide.title[language] || slide.title.en}
-              referrerPolicy="no-referrer"
-              className="w-full min-h-[450px] md:min-h-[600px] lg:min-h-[760px] object-cover"
-            />
-            <div className="absolute inset-0 flex items-center justify-center z-20">
-              <div className="max-w-[1320px] w-full mx-auto px-6 md:px-12">
-                <div className="flex justify-start">
-                  <div className="w-full lg:w-7/12 text-start">
-                    <h1 className="text-[2.5rem] sm:text-[3.5rem] lg:text-[4.5rem] font-bold text-[#BE9C6A] leading-[1.15] mb-10">
-                      {currentSlide.title[language] || currentSlide.title.en}
-                    </h1>
-                    <div className="flex flex-wrap items-center gap-4">
-                      <a
-                        href={primaryLink}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onNavigate(primaryLink);
-                        }}
-                        className="bg-[#23838B] hover:bg-[#1c6b72] text-white font-medium rounded-full py-3.5 px-10 transition-colors inline-block"
-                      >
-                        {primaryLabel}
-                      </a>
-                      <a
-                        href={secondaryLink}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onNavigate(secondaryLink);
-                        }}
-                        className="bg-[#BE9C6A] hover:bg-[#ab8a59] text-white font-medium rounded-full py-3.5 px-10 transition-colors inline-block"
-                      >
-                        {secondaryLabel}
-                      </a>
+        {slides.map((slide, idx) => {
+          const slideButtons = resolveSlideButtons(slide, t.products, t.productsCategories);
+          const contentPos = slide.contentPosition || 'right';
+          const buttonsPos = slide.buttonsPosition || contentPos || 'right';
+          const verticalPos = slide.verticalPosition || 'center';
+          const showTitle = slide.showTitle !== false;
+          const offsetX = typeof slide.buttonOffsetX === 'number' ? slide.buttonOffsetX : 0;
+          const offsetY = typeof slide.buttonOffsetY === 'number' ? slide.buttonOffsetY : 0;
+
+          const contentAlign = getHorizontalWrapperStyle(contentPos);
+          const buttonsJustify = getButtonsRowJustify(buttonsPos);
+          const verticalClass = getVerticalContainerClass(verticalPos);
+
+          return (
+            <div
+              key={slide.id}
+              className={`transition-opacity duration-700 ${
+                idx === safeIndex
+                  ? 'opacity-100 relative z-10'
+                  : 'opacity-0 absolute inset-0 pointer-events-none'
+              }`}
+            >
+              <img
+                src={slide.image}
+                alt={slide.title[language] || slide.title.en || 'Slide'}
+                referrerPolicy="no-referrer"
+                className="w-full min-h-[450px] md:min-h-[600px] lg:min-h-[760px] object-cover"
+              />
+              <div className={`absolute inset-0 flex justify-center z-20 ${verticalClass}`}>
+                <div className="max-w-[1320px] w-full mx-auto px-6 md:px-12">
+                  {/* Slide Heading Block */}
+                  {showTitle && (slide.title[language] || slide.title.ar || slide.title.en) && (
+                    <div className={`flex w-full ${contentAlign.rowJustify}`}>
+                      <div className={`w-full lg:w-8/12 ${contentAlign.textAlign}`}>
+                        <h1 className="text-[2.5rem] sm:text-[3.5rem] lg:text-[4.5rem] font-bold text-[#BE9C6A] leading-[1.2] mb-8">
+                          {slide.title[language] || slide.title.ar || slide.title.en}
+                        </h1>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Slide Buttons Block with Independent Position & Fine Offset */}
+                  {slideButtons.length > 0 && (
+                    <div
+                      style={{
+                        transform:
+                          offsetX !== 0 || offsetY !== 0
+                            ? `translate(${offsetX}px, ${offsetY}px)`
+                            : undefined,
+                      }}
+                      className={`flex flex-wrap items-center gap-4 w-full ${buttonsJustify}`}
+                    >
+                      {slideButtons.map((btn) => {
+                        const btnText =
+                          btn.label[language] || btn.label.ar || btn.label.en || t.products;
+                        const btnLink = btn.link || '/all-products';
+                        const isExternal =
+                          btnLink.startsWith('http://') ||
+                          btnLink.startsWith('https://') ||
+                          btnLink.startsWith('tel:') ||
+                          btnLink.startsWith('mailto:');
+
+                        return (
+                          <a
+                            key={btn.id}
+                            href={btnLink}
+                            onClick={(e) => {
+                              if (!isExternal) {
+                                e.preventDefault();
+                                onNavigate(btnLink);
+                              }
+                            }}
+                            className={`font-medium rounded-full py-3.5 px-9 transition-all inline-block ${getButtonStyleClasses(
+                              btn.style
+                            )}`}
+                          >
+                            {btnText}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* Carousel Prev / Next Controls */}
         {slides.length > 1 && (
