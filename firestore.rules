@@ -1,166 +1,97 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Pillar 1: Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Primitives
+    match /{document=**} { allow read, write: if false; }
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    // Tier 1: Super Admin (Owner email or UID in /admins/{uid})
+    function isSignedIn() { return request.auth != null; }
+    function isVerifiedUser() { return isSignedIn() && request.auth.token.email_verified == true; }
     function isSuperAdmin() {
       return isVerifiedUser() && (
         request.auth.token.email == 'yr.play.com@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
-
-    function isAdmin() {
-      return isSuperAdmin();
+    function hasStaffProfile() {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/staff_profiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff_profiles/$(request.auth.uid)).data.uid == request.auth.uid &&
+        get(/databases/$(database)/documents/staff_profiles/$(request.auth.uid)).data.email == request.auth.token.email &&
+        get(/databases/$(database)/documents/staff_profiles/$(request.auth.uid)).data.active == true;
     }
-
-    // Tier 1 or Tier 2 Authorized Staff (listed in /site_content/main authorizedEmails)
-    function isAuthorizedStaff() {
-      return isVerifiedUser() && (
-        isSuperAdmin() ||
-        (
-          exists(/databases/$(database)/documents/site_content/main) &&
-          request.auth.token.email in get(/databases/$(database)/documents/site_content/main).data.authorizedEmails
-        )
-      );
-    }
-
-    // Validation Blueprint for SiteContent (with Pillar 5 Total Array Guarding on authorizedEmails)
+    function isAuthorizedStaff() { return isSuperAdmin() || hasStaffProfile(); }
     function isValidSiteContent(data) {
-      return data.keys().hasAll(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasAll(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['payloadJson', 'updatedBy', 'version', 'createdAt', 'updatedAt']) &&
         data.payloadJson is string && data.payloadJson.size() >= 2 && data.payloadJson.size() <= 900000 &&
-        data.authorizedEmails is list && data.authorizedEmails.size() >= 1 && data.authorizedEmails.size() <= 50 &&
-        data.authorizedEmails[0] is string && data.authorizedEmails[0].size() >= 3 && data.authorizedEmails[0].size() <= 128 &&
         data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
-        data.version is int && data.version >= 1 &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+        data.version is int && data.version >= 1 && data.createdAt is timestamp && data.updatedAt is timestamp;
     }
-
-    // Validation Blueprint for SiteMedia
     function isValidSiteMedia(data, targetMediaId) {
       return data.keys().hasAll(['mediaId', 'dataUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
         data.keys().hasOnly(['mediaId', 'dataUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
         data.mediaId is string && isValidId(data.mediaId) && data.mediaId == targetMediaId &&
         data.dataUrl is string && data.dataUrl.size() >= 5 && data.dataUrl.size() <= 850000 &&
         data.updatedBy is string && isValidId(data.updatedBy) && data.updatedBy == request.auth.uid &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+        data.createdAt is timestamp && data.updatedAt is timestamp;
     }
-
-    // Validation Blueprint for AdminRecord
-    function isValidAdminRecord(data, targetUid) {
-      return data.keys().hasAll(['uid', 'addedBy', 'createdAt']) &&
-        data.keys().hasOnly(['uid', 'addedBy', 'createdAt']) &&
-        data.uid is string && isValidId(data.uid) && data.uid == targetUid &&
-        data.addedBy is string && isValidId(data.addedBy) && data.addedBy == request.auth.uid &&
-        data.createdAt is timestamp;
+    function isValidStaffProfile(data, targetUid) {
+      return data.keys().hasAll(['uid', 'id', 'email', 'name', 'jobTitle', 'rolePreset', 'permissions', 'active', 'addedAt']) &&
+        data.keys().hasOnly(['uid', 'id', 'email', 'name', 'jobTitle', 'rolePreset', 'permissions', 'active', 'addedAt']) &&
+        data.uid == targetUid && isValidId(data.uid) && isValidId(data.id) &&
+        data.email is string && data.email.size() >= 5 && data.email.size() <= 254 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.jobTitle is string && data.jobTitle.size() <= 160 &&
+        data.rolePreset in ['super_admin', 'products_manager', 'content_editor', 'support_agent', 'custom'] &&
+        data.permissions is list && data.permissions.size() <= 11 &&
+        data.active is bool && data.addedAt is string && data.addedAt.size() <= 40;
     }
-
-    // Public CMS state synchronized across all devices
     match /site_content/{docId} {
       allow get: if isValidId(docId);
       allow list: if false;
-
-      allow create: if isVerifiedUser() &&
-        isValidId(docId) &&
-        isValidSiteContent(incoming()) &&
-        incoming().version == 1 &&
-        incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isSuperAdmin();
-
-      // Pillar 4 Tiered Identity Logic + Monotonic Version Increment:
-      // - Tier 1 (isSuperAdmin()): Can update payloadJson and authorizedEmails
-      // - Tier 2 (Authorized Staff in existing().authorizedEmails): Can update payloadJson only, cannot modify authorizedEmails
-      allow update: if isVerifiedUser() &&
-        isValidId(docId) &&
-        isValidSiteContent(incoming()) &&
-        incoming().version == resource.data.version + 1 &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        (
-          (
-            incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'updatedAt']) &&
-            isSuperAdmin()
-          ) ||
-          (
-            incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt']) &&
-            incoming().authorizedEmails == existing().authorizedEmails &&
-            request.auth.token.email in existing().authorizedEmails &&
-            isAuthorizedStaff()
-          )
-        );
-
+      allow create: if isSuperAdmin() && isValidId(docId) &&
+        isValidSiteContent(request.resource.data) && request.resource.data.version == 1 &&
+        request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+      // Restrict publishing to super-admin until granular server-side RBAC is implemented.
+      allow update: if isSuperAdmin() && isValidId(docId) &&
+        isValidSiteContent(request.resource.data) &&
+        request.resource.data.version == resource.data.version + 1 &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt', 'authorizedEmails']);
       allow delete: if false;
     }
-
-    // High-resolution media assets (banners, product photos) referenced by /site_content/main
+    match /staff_profiles/{staffUid} {
+      allow get: if isVerifiedUser() && isValidId(staffUid) && (request.auth.uid == staffUid || isSuperAdmin());
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() && isValidId(staffUid) && isValidStaffProfile(request.resource.data, staffUid);
+      allow delete: if isSuperAdmin() && isValidId(staffUid);
+    }
     match /site_media/{mediaId} {
       allow get: if isValidId(mediaId);
       allow list: if false;
-
-      allow create: if isVerifiedUser() &&
-        isValidId(mediaId) &&
-        isValidSiteMedia(incoming(), mediaId) &&
-        incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isAuthorizedStaff();
-
-      allow update: if isVerifiedUser() &&
-        isValidId(mediaId) &&
-        isValidSiteMedia(incoming(), mediaId) &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['dataUrl', 'updatedBy', 'updatedAt']) &&
-        isAuthorizedStaff();
-
-      allow delete: if isVerifiedUser() && isValidId(mediaId) && isSuperAdmin();
+      allow create: if isAuthorizedStaff() && isValidId(mediaId) &&
+        isValidSiteMedia(request.resource.data, mediaId) &&
+        request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+      allow update: if isAuthorizedStaff() && isValidId(mediaId) &&
+        isValidSiteMedia(request.resource.data, mediaId) &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dataUrl', 'updatedBy', 'updatedAt']);
+      allow delete: if isSuperAdmin() && isValidId(mediaId);
     }
-
-    // Admin registry (prevents super admin from deleting their own record)
     match /admins/{adminUid} {
       allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isSuperAdmin());
       allow list: if false;
-
-      allow create: if isVerifiedUser() &&
-        isValidId(adminUid) &&
-        isValidAdminRecord(incoming(), adminUid) &&
-        incoming().createdAt == request.time &&
-        isSuperAdmin();
-
+      allow create: if isSuperAdmin() && isValidId(adminUid) &&
+        request.resource.data.keys().hasAll(['uid', 'addedBy', 'createdAt']) &&
+        request.resource.data.keys().hasOnly(['uid', 'addedBy', 'createdAt']) &&
+        request.resource.data.uid == adminUid && request.resource.data.addedBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time;
       allow update: if false;
-
-      allow delete: if isVerifiedUser() &&
-        isValidId(adminUid) &&
-        adminUid != request.auth.uid &&
-        isSuperAdmin();
+      allow delete: if isSuperAdmin() && isValidId(adminUid) && adminUid != request.auth.uid;
     }
   }
 }
