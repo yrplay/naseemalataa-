@@ -1188,11 +1188,13 @@ export const DEFAULT_STAFF_MEMBERS: StaffMember[] = [
   },
 ];
 
+// Legacy display settings only. Authentication is handled by Firebase Auth;
+// never ship a reusable administrator password in the client bundle.
 export const DEFAULT_ADMIN_AUTH: AdminAuthConfig = {
-  username: 'admin',
-  email: 'info@naseemalata.sa',
-  password: 'Naseem@2026',
-  lastPublishedAt: '2026-11-12 09:00 AM',
+  username: '',
+  email: '',
+  password: '',
+  lastPublishedAt: '',
 };
 
 export function createDefaultSiteState(): SiteState {
