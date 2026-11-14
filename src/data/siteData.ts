@@ -245,7 +245,6 @@ export interface StaffMember {
   email: string;
   jobTitle: string;
   rolePreset: StaffRolePreset;
-  accessCode?: string;
   permissions: StaffPermissionKey[];
   active: boolean;
   addedAt: string;
@@ -1182,7 +1181,6 @@ export const DEFAULT_STAFF_MEMBERS: StaffMember[] = [
     email: 'yr.play.com@gmail.com',
     jobTitle: 'المدير العام ومالك النظام (Super Admin)',
     rolePreset: 'super_admin',
-    accessCode: 'Naseem@2026',
     permissions: [...ALL_STAFF_PERMISSIONS],
     active: true,
     addedAt: '2026-11-12',
