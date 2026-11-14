@@ -201,4 +201,5 @@ test('Staff RBAC enforces granular permissions without local password authentica
   assert.equal(hasStaffPermission(staff, 'staff'), false);
   assert.equal(hasStaffPermission(staff, 'theme'), false);
   assert.equal(hasStaffPermission({ ...staff, active: false }, 'products'), false);
+  assert.equal(hasStaffPermission({ ...staff, rolePreset: 'super_admin', permissions: ['overview'] }, 'staff'), false);
 });
