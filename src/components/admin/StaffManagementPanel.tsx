@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { deleteDoc, doc } from 'firebase/firestore';
+import { auth, db } from '../../firebase';
 import {
   ALL_STAFF_PERMISSIONS,
   STAFF_ROLE_PRESETS,
@@ -110,12 +112,10 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   const [uid, setUid] = useState('');
   const [rolePreset, setRolePreset] = useState<StaffRolePreset>('products_manager');
   const [jobTitle, setJobTitle] = useState(STAFF_ROLE_PRESETS.products_manager.defaultTitleAr);
-  const [accessCode, setAccessCode] = useState('');
   const [permissions, setPermissions] = useState<StaffPermissionKey[]>(
     STAFF_ROLE_PRESETS.products_manager.permissions
   );
   const [active, setActive] = useState(true);
-  const [showAccessCodeMap, setShowAccessCodeMap] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const isSuperAdmin = Boolean(
@@ -154,7 +154,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     setUid('');
     setRolePreset('products_manager');
     setJobTitle(STAFF_ROLE_PRESETS.products_manager.defaultTitleAr);
-    setAccessCode('');
     setPermissions([...STAFF_ROLE_PRESETS.products_manager.permissions]);
     setActive(true);
   };
@@ -223,7 +222,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                 email: isPrimaryOwner ? SUPER_ADMIN_EMAIL : cleanEmail,
                 rolePreset: isPrimaryOwner ? 'super_admin' : rolePreset,
                 jobTitle: jobTitle.trim() || STAFF_ROLE_PRESETS[rolePreset].defaultTitleAr,
-                accessCode: accessCode.trim(),
                 permissions: finalPermissions,
                 active: isPrimaryOwner ? true : active,
               }
@@ -240,7 +238,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
         email: cleanEmail,
         rolePreset,
         jobTitle: jobTitle.trim() || STAFF_ROLE_PRESETS[rolePreset].defaultTitleAr,
-        accessCode: accessCode.trim() || 'Naseem@2026',
         permissions,
         active,
         addedAt: new Date().toLocaleDateString('ar-SA'),
@@ -266,7 +263,6 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     setUid(member.uid || '');
     setRolePreset(member.rolePreset);
     setJobTitle(member.jobTitle);
-    setAccessCode(member.accessCode || '');
     setPermissions([...member.permissions]);
     setActive(member.active);
   };
@@ -293,7 +289,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     );
   };
 
-  const handleDeleteStaff = (member: StaffMember) => {
+  const handleDeleteStaff = async (member: StaffMember) => {
     if (!isSuperAdmin) {
       onNotify('حذف الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
       return;
@@ -301,6 +297,14 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
     if (member.email.toLowerCase() === SUPER_ADMIN_EMAIL) {
       onNotify('لا يمكن حذف المالك الرئيسي للنظام.', 'danger');
       return;
+    }
+    if (member.uid && auth.currentUser?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL) {
+      try {
+        await deleteDoc(doc(db, 'staff_profiles', member.uid));
+      } catch {
+        onNotify('تعذر حذف سجل الموظف من قاعدة البيانات الخاصة. لم يتم حذف السجل محلياً.', 'danger');
+        return;
+      }
     }
     updateSiteState((prev) => ({
       ...prev,
@@ -664,19 +668,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-extrabold text-gray-700 mb-1.5">
-                  كود الدخول المباشر (أو يدخل عبر Google)
-                </label>
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={accessCode}
-                  onChange={(e) => setAccessCode(e.target.value)}
-                  placeholder="مثال: Staff@2025"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 focus:border-[#2c8c5e] focus:outline-none text-sm font-mono"
-                />
-              </div>
+
             </div>
 
             {/* Granular Permissions Matrix */}
@@ -852,22 +844,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                               <i className="far fa-envelope ml-1 text-gray-400"></i>
                               {member.email}
                             </span>
-                            {member.accessCode && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setShowAccessCodeMap((prev) => ({
-                                    ...prev,
-                                    [member.id]: !prev[member.id],
-                                  }))
-                                }
-                                className="text-[11px] font-mono bg-gray-100 hover:bg-gray-200 px-2 py-0.5 rounded-lg text-gray-700 cursor-pointer"
-                                title="إظهار/إخفاء كود الدخول المباشر"
-                              >
-                                <i className="fas fa-key ml-1 text-amber-600"></i>
-                                {showCode ? member.accessCode : '•••••• (إظهار الكود)'}
-                              </button>
-                            )}
+
                           </div>
                         </div>
                       </div>
