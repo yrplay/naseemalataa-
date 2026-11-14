@@ -602,7 +602,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   value={emailInput}
                   onChange={(e) => {
                     setEmailInput(e.target.value);
-                    const found = findStaffByEmail(e.target.value, siteState.staffMembers);
                     // Staff records are fetched only after Firebase authentication; show the
                     // password field for any valid-looking email so first-time staff can sign in.
                     setShowPasswordField(e.target.value.trim().includes('@'));
