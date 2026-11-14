@@ -1,203 +1,268 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../../firebase';
 import { useSite } from '../../context/SiteContext';
-import { DEFAULT_ADMIN_AUTH, StaffMember } from '../../data/siteData';
-import { authenticateStaffLogin } from '../../utils/siteLogic';
+import { StaffMember } from '../../data/siteData';
+import { authenticateStaffLogin, findStaffByEmail } from '../../utils/siteLogic';
 
-interface AdminLoginGateProps {
-  onLoginSuccess: (staff?: StaffMember) => void;
-  onNavigateHome: () => void;
+export interface AdminLoginGateProps {
+  children?: React.ReactNode;
+  onLoginSuccess?: (staff?: StaffMember) => void;
+  onNavigateHome?: () => void;
 }
 
 export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
+  children,
   onLoginSuccess,
   onNavigateHome,
 }) => {
-  const { siteState, signInWithGoogleAdmin, cloudSyncError } = useSite();
-  const authConfig = siteState.adminAuth || DEFAULT_ADMIN_AUTH;
-
-  const [identifier, setIdentifier] = useState('');
+  const { siteState, signInWithGoogleAdmin } = useSite();
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [googleBusy, setGoogleBusy] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    let isMounted = true;
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        if (isMounted) {
+          setUser(null);
+          setIsAuthorized(false);
+          setChecking(false);
+        }
+        return;
+      }
+
+      try {
+        const cleanEmail = (currentUser.email || '').trim().toLowerCase();
+        const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+
+        // 1. Check /admins/{uid} in Firestore
+        let isSuperAdminDoc = false;
+        try {
+          const adminRef = doc(db, 'admins', currentUser.uid);
+          const adminSnap = await getDoc(adminRef);
+          isSuperAdminDoc = adminSnap.exists();
+        } catch {
+          // ignore if offline
+        }
+
+        // 2. Check authorizedEmails in /site_content/main
+        let isInRemoteAuthorizedEmails = false;
+        try {
+          const mainContentRef = doc(db, 'site_content', 'main');
+          const mainSnap = await getDoc(mainContentRef);
+          if (mainSnap.exists()) {
+            const data = mainSnap.data();
+            if (Array.isArray(data.authorizedEmails) && cleanEmail) {
+              isInRemoteAuthorizedEmails = data.authorizedEmails
+                .map((e: unknown) => String(e).trim().toLowerCase())
+                .includes(cleanEmail);
+            }
+          }
+        } catch {
+          // ignore if offline
+        }
+
+        const matchedStaff = findStaffByEmail(cleanEmail, siteState.staffMembers);
+        const isLocalActiveStaff = Boolean(matchedStaff && matchedStaff.active);
+
+        if (isOwner || isSuperAdminDoc || isInRemoteAuthorizedEmails || isLocalActiveStaff) {
+          if (isMounted) {
+            setUser(currentUser);
+            setIsAuthorized(true);
+            setError('');
+            onLoginSuccess?.(matchedStaff || undefined);
+          }
+        } else {
+          await signOut(auth);
+          if (isMounted) {
+            setUser(null);
+            setIsAuthorized(false);
+            setError('هذا الحساب غير مصرح له بالدخول إلى لوحة الإدارة.');
+          }
+        }
+      } catch (err) {
+        console.error('Error verifying staff permissions:', err);
+        if (isMounted) {
+          setUser(null);
+          setIsAuthorized(false);
+          setError('تعذر التحقق من صلاحيات الحساب، تأكد من إعدادات قاعدة البيانات.');
+        }
+      } finally {
+        if (isMounted) {
+          setChecking(false);
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [siteState.staffMembers, onLoginSuccess]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = authenticateStaffLogin(
-      identifier,
+    setError('');
+
+    // First verify against authorized staff members and access codes
+    const staffAuth = authenticateStaffLogin(
+      email,
       password,
       siteState.staffMembers,
-      authConfig
+      siteState.adminAuth
     );
-    if (res.staff) {
-      setErrorMsg('');
-      onLoginSuccess(res.staff);
-    } else {
-      setErrorMsg(res.error || 'بيانات الدخول غير صحيحة.');
+
+    if (staffAuth.staff) {
+      setIsAuthorized(true);
+      onLoginSuccess?.(staffAuth.staff);
+      return;
+    }
+
+    // Fallback to Firebase Email/Password authentication if configured
+    setChecking(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+    } catch {
+      setError(staffAuth.error || 'البريد الإلكتروني أو كود الدخول غير صحيح.');
+      setChecking(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
-    setIsGoogleLoading(true);
-    setErrorMsg('');
-    const res = await signInWithGoogleAdmin();
-    setIsGoogleLoading(false);
-    if (res.ok) {
-      onLoginSuccess();
-    } else {
-      setErrorMsg(
-        res.error ||
-          'تعذر تسجيل الدخول عبر Google. تأكد من أن بريدك الإلكتروني مضاف ضمن قائمة الموظفين والأدمنز المعتمدين.'
-      );
+    setError('');
+    setGoogleBusy(true);
+    try {
+      const res = await signInWithGoogleAdmin(true);
+      if (res.ok && res.email) {
+        const matched = findStaffByEmail(res.email, siteState.staffMembers);
+        setIsAuthorized(true);
+        onLoginSuccess?.(matched || undefined);
+      } else if (res.error) {
+        setError(res.error);
+      }
+    } catch {
+      setError('تعذر تسجيل الدخول عبر حساب Google.');
+    } finally {
+      setGoogleBusy(false);
     }
   };
 
-  const handleFillDefault = () => {
-    setIdentifier('yr.play.com@gmail.com');
-    setPassword(authConfig.password);
-    setErrorMsg('');
-  };
+  if (checking) {
+    return (
+      <div dir="rtl" className="min-h-screen flex items-center justify-center bg-slate-50">
+        <p className="text-slate-600 font-bold text-sm">جاري التحقق من صلاحيات الوصول...</p>
+      </div>
+    );
+  }
 
-  return (
-    <div
-      dir="rtl"
-      className="min-h-screen bg-[#F7F8FC] bg-icon flex flex-col justify-center items-center px-4 py-12"
-    >
-      <div className="w-full max-w-[460px] bg-white rounded border border-slate-200 shadow-[0_10px_40px_rgba(0,0,0,0.06)] p-8">
-        <div className="text-center mb-6">
-          <img
-            src={siteState.company.logo}
-            alt="Logo"
-            referrerPolicy="no-referrer"
-            className="h-14 w-auto mx-auto mb-4 object-contain"
-          />
-          <span className="inline-block px-3 py-1 rounded bg-teal-50 text-[#23838B] text-[11px] font-bold mb-2 border border-teal-200">
-            بوابة الموظفين والإدارة المستقلة
-          </span>
-          <h1 className="text-xl font-bold text-slate-900">
-            تسجيل دخول الأدمن والموظفين
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            شركة نسيم العطاء التجارية · يفتح لكل موظف صلاحيات أقسامه المحددة فقط
-          </p>
-        </div>
-
-        {/* Cloud Sync Google Login Button */}
-        <div className="mb-5 p-3.5 rounded bg-teal-50/80 border border-teal-200 space-y-2">
-          <div className="text-xs font-bold text-slate-800">
-            1. الدخول السحابي بالإيميل عبر Google (للأدمن والموظفين المضافين):
+  if (!user && !isAuthorized) {
+    return (
+      <div dir="rtl" className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="w-full max-w-md bg-white p-7 rounded-2xl shadow-lg border border-slate-200">
+          <div className="text-center mb-6">
+            <img
+              src={siteState.company.logo}
+              alt={siteState.company.nameAr}
+              referrerPolicy="no-referrer"
+              className="h-14 w-auto mx-auto mb-3 object-contain"
+            />
+            <h2 className="text-xl font-extrabold text-slate-800">
+              بوابة دخول الإدارة والموظفين
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              مخصصة للأدمنز والموظفين المعتمدين في قائمة الصلاحيات
+            </p>
           </div>
+
+          {error && (
+            <div
+              role="alert"
+              className="mb-4 p-3 bg-red-50 text-red-700 text-xs font-bold rounded-xl border border-red-200"
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Google Sign-In Button */}
           <button
             type="button"
-            disabled={isGoogleLoading}
+            disabled={googleBusy}
             onClick={handleGoogleSignIn}
-            className="w-full py-2.5 px-4 bg-[#23838B] hover:bg-[#1a666d] text-white font-semibold text-xs rounded flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
+            className="w-full mb-4 bg-white hover:bg-slate-50 text-slate-800 font-extrabold py-2.5 px-4 rounded-xl border border-slate-300 transition flex items-center justify-center gap-2.5 text-sm cursor-pointer disabled:opacity-60"
           >
-            <i className="fab fa-google text-sm"></i>
+            <i className="fab fa-google text-[#ea4335] text-base"></i>
             <span>
-              {isGoogleLoading
-                ? 'جاري التحقق من البريد والصلاحيات السحابية...'
-                : 'تسجيل الدخول بحساب Google المعتمد'}
+              {googleBusy ? 'جاري التحقق من حساب Google...' : 'تسجيل الدخول بحساب Google المعتمد'}
             </span>
           </button>
-          <p className="text-[11px] text-slate-600 leading-relaxed">
-            يتحقق النظام تلقائياً من بريدك الإلكتروني ويفتح لك الأقسام المخصصة لمهامك مع مزامنة فورية على جميع الأجهزة.
-          </p>
-        </div>
 
-        {(errorMsg || cloudSyncError) && (
-          <div
-            role="alert"
-            className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs font-medium break-words"
-          >
-            {errorMsg || cloudSyncError}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label
-              htmlFor="admin_identifier"
-              className="block text-xs font-semibold text-slate-700 mb-1.5"
-            >
-              2. أو الدخول ببريد الموظف وكود الدخول الخاص به
-            </label>
-            <input
-              id="admin_identifier"
-              type="text"
-              required
-              dir="ltr"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="employee@gmail.com أو yr.play.com@gmail.com"
-              className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded focus:outline-none focus:border-[#23838B]"
-            />
+          <div className="relative flex py-2 items-center mb-4">
+            <div className="flex-grow border-t border-slate-200"></div>
+            <span className="flex-shrink mx-3 text-slate-400 text-xs font-bold">
+              أو عبر البريد وكود الدخول
+            </span>
+            <div className="flex-grow border-t border-slate-200"></div>
           </div>
 
-          <div>
-            <label
-              htmlFor="admin_password"
-              className="block text-xs font-semibold text-slate-700 mb-1.5"
-            >
-              كلمة المرور / كود الدخول للموظف
-            </label>
-            <div className="relative" dir="ltr">
+          <form onSubmit={handleLogin} className="space-y-3.5">
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 mb-1">
+                البريد الإلكتروني الوظيفي
+              </label>
               <input
-                id="admin_password"
-                type={showPassword ? 'text' : 'password'}
+                type="email"
+                dir="ltr"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="yr.play.com@gmail.com"
+                className="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-600"
                 required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 mb-1">
+                كود الدخول / كلمة المرور
+              </label>
+              <input
+                type="password"
                 dir="ltr"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-3.5 pr-10 py-2.5 text-sm border border-slate-300 rounded focus:outline-none focus:border-[#23838B]"
+                className="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-600"
+                required
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                className="absolute inset-y-0 right-0 px-3 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
-              >
-                <i className={`fa ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-              </button>
             </div>
-          </div>
+            <button
+              type="submit"
+              className="w-full bg-[#23838B] hover:bg-[#1a656b] text-white font-extrabold py-2.5 rounded-xl transition text-sm cursor-pointer"
+            >
+              دخول للوحة التحكم
+            </button>
+          </form>
 
-          <button
-            type="submit"
-            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded transition-colors cursor-pointer"
-          >
-            دخول إلى بوابة العمل
-          </button>
-        </form>
-
-        <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 text-xs text-slate-600 space-y-1.5">
-            <div className="font-bold text-slate-800 flex items-center justify-between">
-              <span>دخول سريع للمالك (المدير العام):</span>
-              <button
-                type="button"
-                onClick={handleFillDefault}
-                className="text-[#23838B] hover:underline font-semibold cursor-pointer"
-              >
-                تعبئة تلقائية
-              </button>
-            </div>
-            <div className="flex items-center justify-between font-mono text-[11px]" dir="ltr">
-              <span>Email: yr.play.com@gmail.com</span>
-              <span>Pass: {authConfig.password}</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onNavigateHome}
-            className="w-full py-2 text-xs font-medium text-slate-600 hover:text-[#23838B] transition-colors cursor-pointer"
-          >
-            &rarr; العودة إلى واجهة الزوار الرئيسية
-          </button>
+          {onNavigateHome && (
+            <button
+              type="button"
+              onClick={onNavigateHome}
+              className="w-full mt-4 text-xs font-bold text-slate-500 hover:text-slate-800 py-2 transition cursor-pointer"
+            >
+              العودة إلى الواجهة العامة للموقع
+            </button>
+          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return <>{children}</>;
 };
+
+export default AdminLoginGate;

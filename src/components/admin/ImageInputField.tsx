@@ -12,6 +12,8 @@ interface ImageInputFieldProps {
   maxDimension?: number;
 }
 
+const MAX_FIRESTORE_MEDIA_CHARS = 840000; // Safely below the 850,000-char limit in firebase-blueprint.json
+
 const BUILTIN_ASSETS = [
   { label: 'شعار الشركة (Logo)', url: '/admin_css/logo.png' },
   { label: 'شعار البروفايل (Profile)', url: '/uploads/naseem-profile-logo.jpeg' },
@@ -39,12 +41,12 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [qualityMode, setQualityMode] = useState<UploadQualityMode>(
-    preset === 'banner-hd' ? 'original' : 'ultra-hd'
+    preset === 'banner-hd' ? 'ultra-hd' : 'ultra-hd'
   );
   const [imgDimensions, setImgDimensions] = useState<{ w: number; h: number } | null>(null);
   const [uploadStatusMsg, setUploadStatusMsg] = useState<string | null>(null);
+  const [uploadErrorMsg, setUploadErrorMsg] = useState<string | null>(null);
 
-  // Measure current image natural dimensions so the admin can verify HD resolution
   useEffect(() => {
     if (!value) {
       setImgDimensions(null);
@@ -70,16 +72,23 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadStatusMsg(null);
+    setUploadErrorMsg(null);
 
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== 'string') return;
       const rawDataUrl = reader.result;
 
-      // 1. SVG files are vector graphics — keep 100% original untouched
+      // 1. SVG files are vector graphics — verify size limit
       if (file.type === 'image/svg+xml') {
+        if (rawDataUrl.length > MAX_FIRESTORE_MEDIA_CHARS) {
+          setUploadErrorMsg(
+            'حجم الصورة يتجاوز الحد الأقصى المسموح به في قاعدة البيانات السحابية (850,000 حرف). يرجى اختيار صورة أصغر حجماً.'
+          );
+          return;
+        }
         onChange(rawDataUrl);
-        setUploadStatusMsg('تم رفع ملف SVG بالدقة المتجهة الأصلية 100% بدون أي ضغط.');
+        setUploadStatusMsg('تم رفع ملف SVG بالدقة المتجهة الأصلية بنجاح.');
         return;
       }
 
@@ -89,27 +98,14 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
           const origW = img.naturalWidth || img.width;
           const origH = img.naturalHeight || img.height;
 
-          // Target max safe DataURL length per image so Firestore cloud sync (900KB doc limit) succeeds
-          const maxSafeDataUrlChars = preset === 'banner-hd' ? 520000 : 340000;
-
-          // 2. If user selected "original" (or if file is already within safe byte budget & dimensions),
-          // preserve the exact original file bytes without re-encoding through canvas (zero generation loss!)
-          if (
-            (qualityMode === 'original' && rawDataUrl.length <= 680000) ||
-            (rawDataUrl.length <= maxSafeDataUrlChars && origW <= 3840 && origH <= 3840)
-          ) {
-            onChange(rawDataUrl);
-            setImgDimensions({ w: origW, h: origH });
-            setUploadStatusMsg(
-              `تم رفع الصورة بجودتها الأصلية الكاملة (${origW} × ${origH} بكسل) بدون أي تقليص.`
-            );
-            return;
-          }
-
-          // 3. High-Definition smart scaling for oversized raw files (e.g. 5MB–15MB camera/design exports)
+          // Default max dimension: 1200px for standard images, up to 1600px for HD banners
           const targetMaxDim =
             maxDimension ||
-            (qualityMode === 'original' ? 2880 : preset === 'banner-hd' ? 2560 : 1600);
+            (preset === 'banner-hd'
+              ? qualityMode === 'original'
+                ? 1920
+                : 1600
+              : 1200);
 
           let width = origW;
           let height = origH;
@@ -123,61 +119,86 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
             }
           }
 
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
+          const encodeAtDimensions = (w: number, h: number, q: number): string => {
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return rawDataUrl;
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, width, height);
+            ctx.drawImage(img, 0, 0, w, h);
 
-            // Use WebP at 0.96 quality first — preserves crisp edges, text, and transparency at much higher quality per KB
-            const initialQuality = qualityMode === 'original' ? 0.97 : 0.94;
-            let bestDataUrl = canvas.toDataURL('image/webp', initialQuality);
-
-            // Fallback if browser did not encode as webp
-            if (!bestDataUrl.startsWith('data:image/webp')) {
-              const fallbackMime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-              bestDataUrl = canvas.toDataURL(fallbackMime, initialQuality);
+            const webpUrl = canvas.toDataURL('image/webp', q);
+            if (webpUrl.startsWith('data:image/webp')) {
+              return webpUrl;
             }
+            const fallbackMime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+            return canvas.toDataURL(fallbackMime, q);
+          };
 
-            // If still larger than the Firestore-safe budget, step down WebP quality gently while keeping HD resolution
-            const qualitySteps = [0.92, 0.88, 0.84];
-            for (const q of qualitySteps) {
-              if (bestDataUrl.length <= maxSafeDataUrlChars) break;
-              const candidate = canvas.toDataURL('image/webp', q);
-              if (candidate.startsWith('data:image/webp')) {
-                bestDataUrl = candidate;
-              } else {
-                bestDataUrl = canvas.toDataURL('image/jpeg', q);
-              }
-            }
-
-            const finalUrl =
-              bestDataUrl.length < rawDataUrl.length || rawDataUrl.length > 680000
-                ? bestDataUrl
-                : rawDataUrl;
-
-            onChange(finalUrl);
-            setImgDimensions({ w: width, h: height });
+          // If user chose original mode and the image is already within target dimensions and safely under limit
+          if (
+            qualityMode === 'original' &&
+            origW <= targetMaxDim &&
+            origH <= targetMaxDim &&
+            rawDataUrl.length <= 500000
+          ) {
+            onChange(rawDataUrl);
+            setImgDimensions({ w: origW, h: origH });
             setUploadStatusMsg(
-              `تم رفع الصورة بدقة فائقة الوضوح (${width} × ${height} بكسل — Full HD / 2K).`
+              `تم رفع الصورة بجودتها الأصلية الكاملة (${origW} × ${origH} بكسل) بنجاح.`
             );
             return;
           }
+
+          const initialQuality = qualityMode === 'original' ? 0.94 : 0.9;
+          let bestDataUrl = encodeAtDimensions(width, height, initialQuality);
+
+          // Step down quality if still above MAX_FIRESTORE_MEDIA_CHARS
+          const qualitySteps = [0.86, 0.8, 0.74, 0.68];
+          for (const q of qualitySteps) {
+            if (bestDataUrl.length <= MAX_FIRESTORE_MEDIA_CHARS) break;
+            bestDataUrl = encodeAtDimensions(width, height, q);
+          }
+
+          // If still above MAX_FIRESTORE_MEDIA_CHARS, step down dimensions to 1200px
+          if (bestDataUrl.length > MAX_FIRESTORE_MEDIA_CHARS && (width > 1200 || height > 1200)) {
+            const ratio = Math.min(1200 / width, 1200 / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+            bestDataUrl = encodeAtDimensions(width, height, 0.82);
+          }
+
+          if (bestDataUrl.length > MAX_FIRESTORE_MEDIA_CHARS) {
+            setUploadErrorMsg(
+              'حجم الصورة يتجاوز الحد الأقصى المسموح به في قاعدة البيانات السحابية (850,000 حرف). يرجى اختيار صورة أصغر حجماً.'
+            );
+            return;
+          }
+
+          onChange(bestDataUrl);
+          setImgDimensions({ w: width, h: height });
+          setUploadStatusMsg(
+            `تم ضغط ورفع الصورة بدقة عالية (${width} × ${height} بكسل) وبحجم آمن للمزامنة السحابية.`
+          );
+          return;
         } catch {
-          // fallback to rawDataUrl
+          if (rawDataUrl.length > MAX_FIRESTORE_MEDIA_CHARS) {
+            setUploadErrorMsg(
+              'حجم الصورة يتجاوز الحد الأقصى المسموح به في قاعدة البيانات السحابية (850,000 حرف). يرجى اختيار صورة أصغر حجماً.'
+            );
+            return;
+          }
+          onChange(rawDataUrl);
         }
-        onChange(rawDataUrl);
       };
       img.onerror = () => {
-        onChange(rawDataUrl);
+        setUploadErrorMsg('تعذر قراءة ملف الصورة المرفوع. يرجى اختيار ملف صورة صالح (JPG, PNG, WebP).');
       };
       img.src = rawDataUrl;
     };
     reader.readAsDataURL(file);
-    // Reset input so re-uploading the exact same file triggers onChange
     e.target.value = '';
   };
 
@@ -200,17 +221,6 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
           <span className="text-slate-500 font-medium">دقة الرفع:</span>
           <button
             type="button"
-            onClick={() => setQualityMode('original')}
-            className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
-              qualityMode === 'original'
-                ? 'bg-[#23838B] text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            الأصلية 100% (بدون ضغط)
-          </button>
-          <button
-            type="button"
             onClick={() => setQualityMode('ultra-hd')}
             className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
               qualityMode === 'ultra-hd'
@@ -218,7 +228,18 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            فائقة الوضوح 2K / Full HD
+            دقة عالية مضغوطة (WebP/HD)
+          </button>
+          <button
+            type="button"
+            onClick={() => setQualityMode('original')}
+            className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
+              qualityMode === 'original'
+                ? 'bg-[#23838B] text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            أقصى دقة مسموحة (Full HD)
           </button>
         </div>
       </div>
@@ -241,8 +262,18 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
           id={id}
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="رابط الصورة المباشر (https://...) أو ارفع من جهازك بدقة كاملة..."
+          onChange={(e) => {
+            const nextVal = e.target.value;
+            if (nextVal.startsWith('data:image/') && nextVal.length > MAX_FIRESTORE_MEDIA_CHARS) {
+              setUploadErrorMsg(
+                'حجم الصورة يتجاوز الحد الأقصى المسموح به في قاعدة البيانات السحابية (850,000 حرف). يرجى اختيار صورة أصغر حجماً.'
+              );
+              return;
+            }
+            setUploadErrorMsg(null);
+            onChange(nextVal);
+          }}
+          placeholder="رابط الصورة المباشر (https://...) أو ارفع من جهازك..."
           dir="ltr"
           className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded focus:outline-none focus:border-[#23838B]"
         />
@@ -274,6 +305,16 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
         </button>
       </div>
 
+      {uploadErrorMsg && (
+        <div
+          role="alert"
+          className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-2"
+        >
+          <i className="fa fa-exclamation-circle text-red-600"></i>
+          <span>{uploadErrorMsg}</span>
+        </div>
+      )}
+
       {/* Live Resolution & Quality Diagnostics */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
         {imgDimensions && (
@@ -286,15 +327,20 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
           >
             <i
               className={`fa ${
-                isLegacyLowResBanner ? 'fa-exclamation-triangle text-amber-600' : 'fa-check-circle text-emerald-600'
+                isLegacyLowResBanner
+                  ? 'fa-exclamation-triangle text-amber-600'
+                  : 'fa-check-circle text-emerald-600'
               }`}
             ></i>
             <span>
-              أبعاد الصورة الحالية: <strong dir="ltr">{imgDimensions.w} × {imgDimensions.h} px</strong>
+              أبعاد الصورة الحالية:{' '}
+              <strong dir="ltr">
+                {imgDimensions.w} × {imgDimensions.h} px
+              </strong>
               {isLegacyLowResBanner
                 ? ' — (مرفوعة سابقاً بدقة مصغرة 900px: اضغط «رفع بجودة عالية HD» لإعادة رفعها بكامل دقتها)'
-                : imgDimensions.w >= 1400
-                ? ' — (دقة فائقة الوضوح Full HD / 2K)'
+                : imgDimensions.w >= 1200
+                ? ' — (دقة عالية الوضوح HD)'
                 : ''}
             </span>
           </span>
@@ -302,7 +348,7 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
 
         {uploadStatusMsg && (
           <span className="text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
-            <i className="fa fa-sparkles me-1"></i>
+            <i className="fa fa-check me-1"></i>
             {uploadStatusMsg}
           </span>
         )}
@@ -315,6 +361,7 @@ export const ImageInputField: React.FC<ImageInputFieldProps> = ({
               key={asset.url}
               type="button"
               onClick={() => {
+                setUploadErrorMsg(null);
                 onChange(asset.url);
                 setShowLibrary(false);
               }}

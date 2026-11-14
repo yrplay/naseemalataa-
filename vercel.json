@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/|uploads/|front_css/|admin_css/).*)",
       "destination": "/index.html"
     }
   ]

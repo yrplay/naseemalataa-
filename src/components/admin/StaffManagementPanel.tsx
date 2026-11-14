@@ -117,6 +117,12 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   const [showAccessCodeMap, setShowAccessCodeMap] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const isSuperAdmin = Boolean(
+    currentStaffMember?.rolePreset === 'super_admin' ||
+      currentStaffMember?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL ||
+      cloudAdminUser?.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL
+  );
+
   const detectedOrigin =
     typeof window !== 'undefined' &&
     window.location.origin &&
@@ -152,6 +158,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const handlePresetChange = (preset: StaffRolePreset) => {
+    if (!isSuperAdmin) return;
     setRolePreset(preset);
     setJobTitle(STAFF_ROLE_PRESETS[preset].defaultTitleAr);
     if (preset !== 'custom') {
@@ -160,6 +167,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const togglePermission = (permKey: StaffPermissionKey) => {
+    if (!isSuperAdmin) return;
     setPermissions((prev) => {
       const exists = prev.includes(permKey);
       const next = exists ? prev.filter((k) => k !== permKey) : [...prev, permKey];
@@ -170,6 +178,10 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
 
   const handleSaveStaff = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSuperAdmin) {
+      onNotify('عذراً، تعديل قائمة الإيميلات المصرح لها والصلاحيات متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
+      return;
+    }
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
 
@@ -239,6 +251,10 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const startEditStaff = (member: StaffMember) => {
+    if (!isSuperAdmin) {
+      onNotify('تعديل بيانات الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
+      return;
+    }
     setEditingStaffId(member.id);
     setName(member.name);
     setEmail(member.email);
@@ -250,6 +266,10 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const handleToggleActive = (member: StaffMember) => {
+    if (!isSuperAdmin) {
+      onNotify('تعديل حالة الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
+      return;
+    }
     if (member.email.toLowerCase() === SUPER_ADMIN_EMAIL) {
       onNotify('لا يمكن إيقاف حساب المالك الرئيسي للنظام.', 'danger');
       return;
@@ -268,6 +288,10 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
   };
 
   const handleDeleteStaff = (member: StaffMember) => {
+    if (!isSuperAdmin) {
+      onNotify('حذف الموظفين متاح لمدير النظام الكامل (Super Admin) فقط.', 'danger');
+      return;
+    }
     if (member.email.toLowerCase() === SUPER_ADMIN_EMAIL) {
       onNotify('لا يمكن حذف المالك الرئيسي للنظام.', 'danger');
       return;
@@ -533,7 +557,17 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
             )}
           </div>
 
+          {!isSuperAdmin && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold leading-relaxed flex items-start gap-2.5">
+              <i className="fas fa-lock text-amber-600 mt-0.5"></i>
+              <span>
+                إضافة أو تعديل أو حذف الإيميلات المصرح لها (authorizedEmails) مقصور على مدير النظام الكامل (Super Admin) فقط وفق قواعد الحماية السحابية.
+              </span>
+            </div>
+          )}
+
           <form onSubmit={handleSaveStaff} className="space-y-4">
+            <fieldset disabled={!isSuperAdmin} className="space-y-4 disabled:opacity-60">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
                 <label className="block text-xs font-extrabold text-gray-700 mb-1.5">
@@ -697,7 +731,8 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
 
             <button
               type="submit"
-              className="w-full bg-[#2c8c5e] hover:bg-[#23704b] text-white font-extrabold py-3.5 rounded-2xl shadow-md transition flex items-center justify-center gap-2 text-sm cursor-pointer"
+              disabled={!isSuperAdmin}
+              className="w-full bg-[#2c8c5e] hover:bg-[#23704b] disabled:bg-gray-300 text-white font-extrabold py-3.5 rounded-2xl shadow-md transition flex items-center justify-center gap-2 text-sm cursor-pointer disabled:cursor-not-allowed"
             >
               <i className={`fas ${editingStaffId ? 'fa-save' : 'fa-user-check'}`}></i>
               <span>
@@ -706,6 +741,7 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                   : 'إضافة الموظف وتفعيل صلاحياته السحابية'}
               </span>
             </button>
+            </fieldset>
           </form>
         </div>
 
@@ -840,15 +876,17 @@ export const StaffManagementPanel: React.FC<StaffManagementPanelProps> = ({
                             <span>تجربة صلاحياته</span>
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => startEditStaff(member)}
-                          className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
-                        >
-                          <i className="fas fa-pen"></i>
-                          <span>تعديل</span>
-                        </button>
-                        {!isPrimaryOwner && (
+                        {isSuperAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => startEditStaff(member)}
+                            className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
+                          >
+                            <i className="fas fa-pen"></i>
+                            <span>تعديل</span>
+                          </button>
+                        )}
+                        {isSuperAdmin && !isPrimaryOwner && (
                           <>
                             <button
                               type="button"

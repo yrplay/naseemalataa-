@@ -27,18 +27,22 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
-    // Tier 1: Super Admin (Owner or UID in /admins)
-    function isAdmin() {
+    // Tier 1: Super Admin (Owner email or UID in /admins/{uid})
+    function isSuperAdmin() {
       return isVerifiedUser() && (
         request.auth.token.email == 'yr.play.com@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
+    function isAdmin() {
+      return isSuperAdmin();
+    }
+
     // Tier 1 or Tier 2 Authorized Staff (listed in /site_content/main authorizedEmails)
     function isAuthorizedStaff() {
       return isVerifiedUser() && (
-        isAdmin() ||
+        isSuperAdmin() ||
         (
           exists(/databases/$(database)/documents/site_content/main) &&
           request.auth.token.email in get(/databases/$(database)/documents/site_content/main).data.authorizedEmails
@@ -87,27 +91,30 @@ service cloud.firestore {
       allow create: if isVerifiedUser() &&
         isValidId(docId) &&
         isValidSiteContent(incoming()) &&
+        incoming().version == 1 &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
-        isAdmin();
+        isSuperAdmin();
 
-      // Pillar 4 Tiered Identity Logic:
-      // - Tier 1 (Super Admin): Can update payloadJson and authorizedEmails
+      // Pillar 4 Tiered Identity Logic + Monotonic Version Increment:
+      // - Tier 1 (isSuperAdmin()): Can update payloadJson and authorizedEmails
       // - Tier 2 (Authorized Staff in existing().authorizedEmails): Can update payloadJson only, cannot modify authorizedEmails
       allow update: if isVerifiedUser() &&
         isValidId(docId) &&
         isValidSiteContent(incoming()) &&
+        incoming().version == resource.data.version + 1 &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
           (
             incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'authorizedEmails', 'updatedBy', 'version', 'updatedAt']) &&
-            isAdmin()
+            isSuperAdmin()
           ) ||
           (
             incoming().diff(existing()).affectedKeys().hasOnly(['payloadJson', 'updatedBy', 'version', 'updatedAt']) &&
             incoming().authorizedEmails == existing().authorizedEmails &&
-            request.auth.token.email in existing().authorizedEmails
+            request.auth.token.email in existing().authorizedEmails &&
+            isAuthorizedStaff()
           )
         );
 
@@ -134,23 +141,26 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['dataUrl', 'updatedBy', 'updatedAt']) &&
         isAuthorizedStaff();
 
-      allow delete: if isVerifiedUser() && isValidId(mediaId) && isAdmin();
+      allow delete: if isVerifiedUser() && isValidId(mediaId) && isSuperAdmin();
     }
 
-    // Admin registry
+    // Admin registry (prevents super admin from deleting their own record)
     match /admins/{adminUid} {
-      allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isSuperAdmin());
       allow list: if false;
 
       allow create: if isVerifiedUser() &&
         isValidId(adminUid) &&
         isValidAdminRecord(incoming(), adminUid) &&
         incoming().createdAt == request.time &&
-        isAdmin();
+        isSuperAdmin();
 
       allow update: if false;
 
-      allow delete: if isVerifiedUser() && isValidId(adminUid) && isAdmin();
+      allow delete: if isVerifiedUser() &&
+        isValidId(adminUid) &&
+        adminUid != request.auth.uid &&
+        isSuperAdmin();
     }
   }
 }

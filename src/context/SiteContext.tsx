@@ -579,24 +579,35 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const authorizedEmails = extractAuthorizedEmails(stateToSave.staffMembers);
-        const isSuperAdminUser =
+        let isSuperAdminUser =
           currentUser.email?.trim().toLowerCase() === 'yr.play.com@gmail.com';
 
-        let existsOnServer = hasRemoteDocRef.current;
-        if (!existsOnServer) {
+        if (!isSuperAdminUser) {
           try {
-            const existingSnap = await getDoc(docRef);
-            existsOnServer = existingSnap.exists();
-            if (existingSnap.exists()) {
-              hasRemoteDocRef.current = true;
-              const d = existingSnap.data();
-              if (typeof d.version === 'number') {
-                remoteVersionRef.current = d.version;
-              }
+            const adminSnap = await getDoc(doc(db, 'admins', currentUser.uid));
+            if (adminSnap.exists()) {
+              isSuperAdminUser = true;
             }
-          } catch (err) {
-            handleFirestoreError(err, OperationType.GET, docPath);
+          } catch {
+            // Non-super-admin or offline
           }
+        }
+
+        let existsOnServer = false;
+        let currentServerVersion = remoteVersionRef.current || 1;
+        try {
+          const existingSnap = await getDoc(docRef);
+          existsOnServer = existingSnap.exists();
+          if (existingSnap.exists()) {
+            hasRemoteDocRef.current = true;
+            const d = existingSnap.data();
+            if (typeof d.version === 'number') {
+              currentServerVersion = d.version;
+              remoteVersionRef.current = d.version;
+            }
+          }
+        } catch (err) {
+          handleFirestoreError(err, OperationType.GET, docPath);
         }
 
         if (!existsOnServer) {
@@ -615,7 +626,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
             handleFirestoreError(err, OperationType.CREATE, docPath);
           }
         } else {
-          const nextVersion = (remoteVersionRef.current || 1) + 1;
+          const nextVersion = currentServerVersion + 1;
           try {
             if (isSuperAdminUser) {
               await updateDoc(docRef, {
@@ -645,8 +656,11 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return true;
       } catch (err) {
         setCloudSyncStatus('error');
-        const msg = err instanceof Error ? err.message : String(err);
-        setCloudSyncError(msg);
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        const arabicMsg = rawMsg.includes('insufficient permissions')
+          ? 'عذراً، لا تملك صلاحيات كافية لحفظ هذا التعديل في قاعدة البيانات السحابية.'
+          : `تعذر حفظ التعديلات سحابياً: ${rawMsg}`;
+        setCloudSyncError(arabicMsg);
         return false;
       }
     },
