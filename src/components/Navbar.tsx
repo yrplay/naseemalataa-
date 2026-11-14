@@ -113,23 +113,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       return;
     }
 
-    const matchedStaff = findStaffByEmail(cleanEmail, siteState.staffMembers);
-    const isOwner = cleanEmail === 'yr.play.com@gmail.com';
-
-    if (isOwner || (matchedStaff && matchedStaff.active)) {
-      if (!passwordInput.trim()) {
-        setShowPasswordField(true);
-        setAuthNotice({
-          type: 'info',
-          text: 'أدخل كلمة مرور حساب Firebase المعتمد، أو استخدم تسجيل الدخول عبر Google.',
-        });
-        return;
-      }
+    if (passwordInput.trim()) {
       try {
         await signInWithEmailAndPassword(auth, cleanEmail, passwordInput);
         setAuthNotice({
           type: 'success',
-          text: 'تم التحقق من بيانات الدخول. جارٍ التحقق من صلاحيات الحساب...',
+          text: 'تم التحقق من كلمة المرور. جارٍ التحقق من صلاحيات الحساب...',
         });
         setPasswordInput('');
         setTimeout(() => {
@@ -139,13 +128,23 @@ export const Navbar: React.FC<NavbarProps> = ({
       } catch {
         setAuthNotice({
           type: 'error',
-          text: 'تعذر تسجيل الدخول. تحقق من كلمة مرور Firebase وتوثيق البريد.',
+          text: 'تعذر تسجيل الدخول. تحقق من كلمة المرور. كلمة المرور وحدها لا تمنح صلاحية الإدارة.',
         });
       }
       return;
     }
 
-    // A visitor email never grants administrative privileges.
+    const matchedStaff = findStaffByEmail(cleanEmail, siteState.staffMembers);
+    if (matchedStaff?.active || cleanEmail === 'yr.play.com@gmail.com') {
+      setShowPasswordField(true);
+      setAuthNotice({
+        type: 'info',
+        text: 'أدخل كلمة مرور حساب Firebase الموثق، أو استخدم تسجيل الدخول عبر Google.',
+      });
+      return;
+    }
+
+    // Visitor email is profile information only, never proof of administrative identity.
     loginVisitorEmail(cleanEmail);
     setEmailInput('');
     setPasswordInput('');
@@ -604,12 +603,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onChange={(e) => {
                     setEmailInput(e.target.value);
                     const found = findStaffByEmail(e.target.value, siteState.staffMembers);
-                    if (
-                      found ||
-                      e.target.value.trim().toLowerCase() === 'yr.play.com@gmail.com'
-                    ) {
-                      setShowPasswordField(true);
-                    }
+                    setShowPasswordField(
+                      Boolean(found || e.target.value.trim().toLowerCase() === 'yr.play.com@gmail.com')
+                    );
                   }}
                   placeholder="example@gmail.com"
                   className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:border-[#23838B]"
@@ -619,14 +615,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               {showPasswordField && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    كلمة المرور / كود الدخول للموظف أو الأدمن
+                    كلمة مرور حساب Firebase (للحسابات المعتمدة)
                   </label>
                   <input
                     type="password"
                     dir="ltr"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="أدخل كود الدخول المخصص لإيميلك"
+                    placeholder="أدخل كلمة مرور Firebase"
                     className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:border-[#23838B]"
                   />
                 </div>
