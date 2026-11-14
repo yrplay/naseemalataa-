@@ -52,6 +52,7 @@ interface SiteContextValue {
   language: LanguageCode;
   setLanguage: (lang: LanguageCode) => void;
   isAdminAuthenticated: boolean;
+  isSuperAdmin: boolean;
   currentStaffMember: StaffMember | null;
   signedInVisitorEmail: string | null;
   loginVisitorEmail: (email: string) => void;
@@ -286,6 +287,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Authentication is restored only from Firebase Auth, never from localStorage.
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
 
   const [loggedInStaffEmail, setLoggedInStaffEmail] = useState<string>('');
 
@@ -405,7 +407,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (found) {
       return found.active ? found : null;
     }
-    if (emailToLookup.trim().toLowerCase() === 'yr.play.com@gmail.com') {
+    if (isSuperAdmin) {
       return {
         ...DEFAULT_STAFF_MEMBERS[0],
         permissions: [...ALL_STAFF_PERMISSIONS],
@@ -413,7 +415,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
     return null;
-  }, [isAdminAuthenticated, cloudAdminUser, loggedInStaffEmail, siteState.staffMembers]);
+  }, [isAdminAuthenticated, isSuperAdmin, cloudAdminUser, loggedInStaffEmail, siteState.staffMembers]);
 
   const hasPermission = useCallback(
     (perm: StaffPermissionKey): boolean => {
@@ -505,18 +507,19 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         }
 
-        let isSuperAdminUser =
-          currentUser.email?.trim().toLowerCase() === 'yr.play.com@gmail.com';
-
-        if (!isSuperAdminUser) {
-          try {
-            const adminSnap = await getDoc(doc(db, 'admins', currentUser.uid));
-            if (adminSnap.exists()) {
-              isSuperAdminUser = true;
-            }
-          } catch {
-            // Non-super-admin or offline
+        let isSuperAdminUser = false;
+        try {
+          const adminSnap = await getDoc(doc(db, 'admins', currentUser.uid));
+          if (adminSnap.exists()) {
+            const admin = adminSnap.data();
+            isSuperAdminUser =
+              admin.uid === currentUser.uid &&
+              admin.email?.trim().toLowerCase() === currentUser.email?.trim().toLowerCase() &&
+              admin.role === 'super_admin' &&
+              admin.active === true;
           }
+        } catch {
+          // A missing or unreadable admin record never grants elevated access.
         }
 
         let existsOnServer = false;
@@ -614,20 +617,28 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (!user?.email || !user.emailVerified) {
-        setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false);
+        setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false); setIsSuperAdmin(false);
         setSiteStateInternal((prev) => ({ ...prev, staffMembers: [] }));
         try { localStorage.removeItem(ADMIN_SESSION_KEY); localStorage.removeItem(STAFF_EMAIL_SESSION_KEY); } catch { /* ignore */ }
         return;
       }
       const cleanEmail = user.email.trim().toLowerCase();
-      const isOwner = cleanEmail === 'yr.play.com@gmail.com';
       try {
+        const adminSnap = await getDoc(doc(db, 'admins', user.uid));
+        const adminData = adminSnap.exists() ? adminSnap.data() : null;
+        const isSuperAdminUser = Boolean(
+          adminData &&
+          adminData.uid === user.uid &&
+          adminData.email?.trim().toLowerCase() === cleanEmail &&
+          adminData.role === 'super_admin' &&
+          adminData.active === true
+        );
         let privateStaff: StaffMember[] = [];
-        if (isOwner) {
+        if (isSuperAdminUser) {
           const snapshot = await getDocs(collection(db, 'staff_profiles'));
           privateStaff = snapshot.docs.map((item) => item.data() as StaffMember);
-          if (!privateStaff.some((member) => member.email?.trim().toLowerCase() === cleanEmail)) {
-            privateStaff.unshift({ ...DEFAULT_STAFF_MEMBERS[0], uid: user.uid, active: true });
+          if (!privateStaff.some((member) => member.uid === user.uid)) {
+            privateStaff.unshift({ ...DEFAULT_STAFF_MEMBERS[0], uid: user.uid, email: cleanEmail, active: true });
           }
         } else {
           const profileSnap = await getDoc(doc(db, 'staff_profiles', user.uid));
@@ -637,19 +648,20 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
         if (auth.currentUser?.uid !== user.uid) return;
-        const authorized = isOwner || privateStaff.some((member) => member.email?.trim().toLowerCase() === cleanEmail && member.active);
+        const authorized = isSuperAdminUser || privateStaff.some((member) => member.uid === user.uid && member.email?.trim().toLowerCase() === cleanEmail && member.active);
         if (!authorized) {
           await signOut(auth);
-          setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false);
+          setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false); setIsSuperAdmin(false);
           setSiteStateInternal((prev) => ({ ...prev, staffMembers: [] }));
           return;
         }
         setSiteStateInternal((prev) => ({ ...prev, staffMembers: privateStaff }));
-        setCloudAdminUser(user); setLoggedInStaffEmail(cleanEmail); setIsAdminAuthenticated(true);
+        setCloudAdminUser(user); setLoggedInStaffEmail(cleanEmail); setIsAdminAuthenticated(true); setIsSuperAdmin(isSuperAdminUser);
         try { localStorage.setItem(ADMIN_SESSION_KEY, 'true'); localStorage.setItem(STAFF_EMAIL_SESSION_KEY, cleanEmail); } catch { /* ignore */ }
       } catch (error) {
         console.error('Unable to load private staff profile', error);
-        setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false);
+        setCloudAdminUser(null); setLoggedInStaffEmail(''); setIsAdminAuthenticated(false); setIsSuperAdmin(false);
+        setSiteStateInternal((prev) => ({ ...prev, staffMembers: [] }));
       }
     });
     return () => unsubAuth();
@@ -790,19 +802,34 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCloudAdminUser(null);
           return { ok: false, error: 'يجب توثيق البريد الإلكتروني قبل تفعيل صلاحيات الإدارة.' };
         }
-        const isOwner = cleanEmail === 'yr.play.com@gmail.com';
+        const adminSnap = await getDoc(doc(db, 'admins', user.uid));
+        const adminData = adminSnap.exists() ? adminSnap.data() : null;
+        const isSuperAdminUser = Boolean(
+          adminData &&
+          adminData.uid === user.uid &&
+          adminData.email?.trim().toLowerCase() === cleanEmail &&
+          adminData.role === 'super_admin' &&
+          adminData.active === true
+        );
         let matched: StaffMember | null = null;
-        if (!isOwner) {
+        let privateStaff: StaffMember[] = [];
+        if (isSuperAdminUser) {
+          const snapshot = await getDocs(collection(db, 'staff_profiles'));
+          privateStaff = snapshot.docs.map((item) => item.data() as StaffMember);
+          if (!privateStaff.some((member) => member.uid === user.uid)) {
+            privateStaff.unshift({ ...DEFAULT_STAFF_MEMBERS[0], uid: user.uid, email: cleanEmail, active: true });
+          }
+        } else {
           const profileSnap = await getDoc(doc(db, 'staff_profiles', user.uid));
           if (profileSnap.exists()) {
             const profile = profileSnap.data() as StaffMember;
             if (profile.uid === user.uid && profile.email?.trim().toLowerCase() === cleanEmail) {
               matched = profile;
-              setSiteStateInternal((prev) => ({ ...prev, staffMembers: [profile] }));
+              privateStaff = [profile];
             }
           }
         }
-        if (!isOwner && (!matched || !matched.active)) {
+        if (!isSuperAdminUser && (!matched || !matched.active)) {
           await signOut(auth);
           setIsAdminAuthenticated(false);
           setSignedInVisitorEmail(cleanEmail);
@@ -816,10 +843,8 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { ok: false, isVisitor: true, email: cleanEmail, error: msg };
         }
 
-        if (isOwner) {
-          const snapshot = await getDocs(collection(db, 'staff_profiles'));
-          setSiteStateInternal((prev) => ({ ...prev, staffMembers: snapshot.docs.map((item) => item.data() as StaffMember) }));
-        }
+        setSiteStateInternal((prev) => ({ ...prev, staffMembers: privateStaff }));
+        setIsSuperAdmin(isSuperAdminUser);
         setCloudAdminUser(user);
         setLoggedInStaffEmail(cleanEmail);
         setSignedInVisitorEmail(cleanEmail);
@@ -877,7 +902,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user?.email || !user.emailVerified) return;
     const email = user.email.trim().toLowerCase();
     const matched = findStaffByEmail(email, latestStateRef.current.staffMembers);
-    if (email !== 'yr.play.com@gmail.com' && (!matched || !matched.active)) return;
+    if (!isSuperAdmin && (!matched || !matched.active)) return;
     setCloudAdminUser(user);
     setLoggedInStaffEmail(email);
     setSignedInVisitorEmail(email);
@@ -894,6 +919,10 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logoutAdmin = () => {
     setIsAdminAuthenticated(false);
+    setIsSuperAdmin(false);
+    setCloudAdminUser(null);
+    setLoggedInStaffEmail('');
+    setSiteStateInternal((prev) => ({ ...prev, staffMembers: [] }));
     setSignedInVisitorEmail(null);
     setVisitorPreviewMode(false);
     try {
@@ -982,6 +1011,7 @@ export const SiteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         language,
         setLanguage,
         isAdminAuthenticated: Boolean(isAdminAuthenticated && currentStaffMember),
+        isSuperAdmin,
         currentStaffMember,
         signedInVisitorEmail,
         loginVisitorEmail,
