@@ -40,44 +40,42 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
 
       try {
         const cleanEmail = (currentUser.email || '').trim().toLowerCase();
-        const isVerified = currentUser.emailVerified;
-        const isOwner = isVerified && cleanEmail === 'yr.play.com@gmail.com';
-
-        // 1. Check /admins/{uid} in Firestore
-        let isSuperAdminDoc = false;
-        try {
-          const adminRef = doc(db, 'admins', currentUser.uid);
-          const adminSnap = await getDoc(adminRef);
-          isSuperAdminDoc = adminSnap.exists();
-        } catch {
-          // ignore if offline
+        if (!currentUser.emailVerified || !cleanEmail) {
+          throw new Error('البريد الإلكتروني غير موثق.');
         }
 
-        // 2. Check authorizedEmails in /site_content/main
-        let isInRemoteAuthorizedEmails = false;
-        try {
-          const mainContentRef = doc(db, 'site_content', 'main');
-          const mainSnap = await getDoc(mainContentRef);
-          if (mainSnap.exists()) {
-            const data = mainSnap.data();
-            if (Array.isArray(data.authorizedEmails) && cleanEmail) {
-              isInRemoteAuthorizedEmails = data.authorizedEmails
-                .map((e: unknown) => String(e).trim().toLowerCase())
-                .includes(cleanEmail);
+        const adminSnap = await getDoc(doc(db, 'admins', currentUser.uid));
+        const adminData = adminSnap.exists() ? adminSnap.data() : null;
+        const isSuperAdminDoc = Boolean(
+          adminData &&
+          adminData.uid === currentUser.uid &&
+          adminData.email?.trim().toLowerCase() === cleanEmail &&
+          adminData.role === 'super_admin' &&
+          adminData.active === true
+        );
+
+        let staffProfile: StaffMember | null = null;
+        if (!isSuperAdminDoc) {
+          const profileSnap = await getDoc(doc(db, 'staff_profiles', currentUser.uid));
+          if (profileSnap.exists()) {
+            const profile = profileSnap.data() as StaffMember;
+            if (
+              profile.uid === currentUser.uid &&
+              profile.email?.trim().toLowerCase() === cleanEmail &&
+              profile.active
+            ) {
+              staffProfile = profile;
             }
           }
-        } catch {
-          // ignore if offline
         }
 
-        const matchedStaff = findStaffByEmail(cleanEmail, siteState.staffMembers);
-
-        if (isVerified && (isOwner || isSuperAdminDoc || isInRemoteAuthorizedEmails)) {
+        if (auth.currentUser?.uid !== currentUser.uid) return;
+        if (isSuperAdminDoc || staffProfile) {
           if (isMounted) {
             setUser(currentUser);
             setIsAuthorized(true);
             setError('');
-            onLoginSuccess?.(matchedStaff || undefined);
+            onLoginSuccess?.(staffProfile || undefined);
           }
         } else {
           await signOut(auth);
@@ -164,7 +162,7 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
               بوابة دخول الإدارة والموظفين
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              مخصصة للأدمنز والموظفين المعتمدين في قائمة الصلاحيات
+              مخصصة للحسابات التي لها سجل صلاحيات خاص وموثق في قاعدة البيانات
             </p>
           </div>
 
